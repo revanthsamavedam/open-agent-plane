@@ -3,22 +3,39 @@
 
 Usage: python scripts/smoke.py [base_url]   (default http://127.0.0.1:8090)
 Expects a fresh server (TestModel placeholder, demo auth).
+
+RBAC (v1.1) is exercised along the way: setup actions run as the demo
+admin, an auditor's run attempt is denied (403, audited), the run's own
+creator is denied approval (separation of duties), and a different
+named approver with the approver role performs the approval.
 """
 import json
 import sys
+import urllib.error
 import urllib.request
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8090"
-HEADERS = {"Content-Type": "application/json", "X-Actor": "admin@example.com"}
+ADMIN = {"X-Actor": "admin@example.com"}  # demo default actor -> admin role
+APPROVER = {"X-Actor": "approver@example.com", "X-Role": "approver"}
+AUDITOR = {"X-Actor": "auditor@example.com", "X-Role": "auditor"}
 
 
-def call(method, path, body=None):
+def call(method, path, body=None, headers=None, expect=None):
+    hdrs = {"Content-Type": "application/json", **(headers or ADMIN)}
     req = urllib.request.Request(
-        BASE + path, method=method, headers=HEADERS,
+        BASE + path, method=method, headers=hdrs,
         data=json.dumps(body).encode() if body is not None else None,
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode() or "{}")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            status, payload = resp.status, json.loads(resp.read().decode() or "{}")
+    except urllib.error.HTTPError as e:
+        status, payload = e.code, {}
+    if expect is None:
+        assert 200 <= status < 300, f"{method} {path} -> {status}: {payload}"
+    else:
+        assert status == expect, f"{method} {path} -> {status} (expected {expect}): {payload}"
+    return payload
 
 
 def main():
@@ -26,10 +43,19 @@ def main():
     assert health["ok"], health
     print("health ok; model:", health["model"])
 
+    me = call("GET", "/api/me")
+    assert me["role"] == "admin", me
+    print("caller:", me)
+
     call("PUT", "/api/settings/model", {"model": ""})
     results = call("POST", "/api/settings/model/evaluate")["results"]
     assert results and all(r["passed"] and r["placeholder"] for r in results)
     print("model eval (placeholder):", [(r["skill"], r["passed"]) for r in results])
+
+    # RBAC: a non-admin cannot set the model; the denial is audited.
+    call("PUT", "/api/settings/model", {"model": "openai:gpt-4o"},
+         headers={"X-Actor": "owner@example.com", "X-Role": "owner"}, expect=403)
+    print("rbac: owner denied model set (403)")
 
     conn = call("POST", "/api/connectors",
                 {"catalog_id": "postgres", "config": {"standin_name": "demo"}})
@@ -43,11 +69,16 @@ def main():
         "allowed_skills": ["daily-brief", "data-lookup", "draft-report"],
     })
 
-    run = call("POST", "/api/runs", {
+    run_body = {
         "agent_id": agent["id"], "skill": "data-lookup", "input": "list records",
         "connector_id": conn["id"], "action": "query",
         "params": {"query": "SELECT title FROM records ORDER BY id"},
-    })
+    }
+    # RBAC: an auditor may not run agents at all.
+    call("POST", "/api/runs", run_body, headers=AUDITOR, expect=403)
+    print("rbac: auditor denied run creation (403)")
+
+    run = call("POST", "/api/runs", run_body)
     assert run["status"] == "completed" and "alpha" in run["draft"], run
     print("data-lookup run:", run["id"], run["status"])
 
@@ -59,14 +90,20 @@ def main():
     assert run["status"] == "awaiting_approval", run
     print("draft-report run:", run["id"], "-> awaiting approval (reviewer approved)")
 
+    # Separation of duties: the run's creator (the admin) cannot approve it.
+    call("POST", f"/api/runs/{run['id']}/approve", {}, expect=403)
+    print("rbac: creator denied own approval (403, separation of duties)")
+
+    # A different named approver, acting in the approver role, approves.
     applied = call("POST", f"/api/runs/{run['id']}/approve",
-                   {"approver": "ops-lead@example.com"})
+                   {"approver": "approver@example.com"}, headers=APPROVER)
     assert applied["status"] == "applied", applied
     print("approved & applied:", applied["applied_note"])
 
     entries = call("GET", "/api/audit")
     types = sorted({e["event_type"] for e in entries})
     print("audit events:", types)
+    assert "authz_denied" in types, "denied attempts must be audited"
     verify = call("GET", "/api/audit/verify")
     assert verify["intact"], verify
     print("audit chain intact:", verify)

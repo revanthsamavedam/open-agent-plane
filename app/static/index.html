@@ -38,6 +38,10 @@
     <button data-page="settings">Settings</button>
   </nav>
   <label class="muted">Actor <input id="actor" style="width:200px;display:inline" value="admin@example.com"></label>
+  <label class="muted">Role <select id="role" style="width:130px;display:inline">
+    <option>admin</option><option>owner</option><option>approver</option><option>auditor</option><option>user</option>
+  </select></label>
+  <span id="me-out" class="muted"></span>
 </header>
 <main>
   <section id="page-setup" class="active">
@@ -45,19 +49,19 @@
     <div class="card step"><h3>Step 1 — Bring your own model</h3>
       <p class="muted">Any Pydantic AI model string: openai:…, azure:…, anthropic:…, bedrock:…, google:…, ollama:… — or leave blank for the offline TestModel placeholder (demo only, never a real certification).</p>
       <input id="wiz-model" placeholder="e.g. openai:gpt-4o (blank = TestModel placeholder)">
-      <button class="action" onclick="wizSetModel()">Save model</button>
-      <button class="ghost" onclick="runEval()">Run certification eval</button>
+      <button class="action" data-roles="admin" onclick="wizSetModel()">Save model</button>
+      <button class="ghost" data-roles="admin" onclick="runEval()">Run certification eval</button>
       <pre id="wiz-model-out"></pre></div>
     <div class="card step"><h3>Step 2 — Connect a connector</h3>
       <p class="muted">Secrets are references only (env:VAR / vault:path). LIVE connectors run against local stand-ins; SCAFFOLD connectors are catalog-complete but do not call the vendor API yet.</p>
       <select id="wiz-catalog"></select>
       <input id="wiz-conn-config" placeholder='config JSON, e.g. {"standin_name":"demo"} or {"api_key_ref":"env:MY_KEY"}'>
-      <button class="action" onclick="wizAddConnector()">Add connector</button>
+      <button class="action" data-roles="admin" onclick="wizAddConnector()">Add connector</button>
       <pre id="wiz-conn-out"></pre></div>
     <div class="card step"><h3>Step 3 — Create your first agent</h3>
       <input id="wiz-agent-name" placeholder="Agent name, e.g. Ops Assistant">
       <input id="wiz-agent-owner" placeholder="Owner (named human), e.g. ops-lead@example.com">
-      <button class="action" onclick="wizAddAgent()">Create agent (all connectors + skills allowed)</button>
+      <button class="action" data-roles="admin,owner" onclick="wizAddAgent()">Create agent (all connectors + skills allowed)</button>
       <pre id="wiz-agent-out"></pre></div>
     <div class="card step"><h3>Step 4 — Run governed work</h3>
       <select id="wiz-run-agent"></select>
@@ -86,13 +90,34 @@
   <section id="page-settings"><h2>Settings</h2><div class="card">
     <p>Model: <b id="settings-model"></b></p>
     <input id="settings-model-in" placeholder="AGENTPLANE_MODEL value (blank = TestModel placeholder)">
-    <button class="action" onclick="setModelFromSettings()">Save model</button>
-    <button class="ghost" onclick="runEval()">Run certification eval</button>
+    <button class="action" data-roles="admin" onclick="setModelFromSettings()">Save model</button>
+    <button class="ghost" data-roles="admin" onclick="runEval()">Run certification eval</button>
     <pre id="settings-out"></pre></div></section>
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
-function actorHeaders() { return {"Content-Type": "application/json", "X-Actor": $("actor").value || "admin@example.com"}; }
+let currentRole = "admin";
+function actorHeaders() { return {"Content-Type": "application/json", "X-Actor": $("actor").value || "admin@example.com", "X-Role": $("role").value}; }
+function applyRoleUI() {
+  document.querySelectorAll("[data-roles]").forEach(el => {
+    const allowed = el.dataset.roles.split(",").includes(currentRole);
+    el.disabled = !allowed; el.style.opacity = allowed ? 1 : 0.45;
+    if (!allowed) el.title = "Requires role: " + el.dataset.roles;
+  });
+}
+async function refreshMe() {
+  try {
+    const me = await api("/api/me");
+    currentRole = me.role;
+    $("me-out").textContent = `acting as ${me.actor} · role: ${me.role} · auth: ${me.auth_mode} (server-enforced)`;
+    applyRoleUI();
+  } catch (e) { $("me-out").textContent = ""; }
+}
+function saveIdentity() {
+  localStorage.setItem("oap_actor", $("actor").value);
+  localStorage.setItem("oap_role", $("role").value);
+  refreshMe();
+}
 async function api(path, opts = {}) {
   const res = await fetch(path, {headers: actorHeaders(), ...opts});
   const text = await res.text();
@@ -153,7 +178,8 @@ async function loadConnectors() {
   const [cat, conns] = await Promise.all([api("/api/catalog"), api("/api/connectors")]);
   $("catalog").innerHTML = "<table><tr><th>Connector</th><th>Status</th><th>Auth</th><th>Scopes</th></tr>" +
     cat.map(c => `<tr><td><b>${c.name}</b><br><span class="muted">${c.id}</span></td><td><span class="badge ${c.status === "LIVE" ? "live" : "scaffold"}">${c.status}</span></td><td>${c.auth_type}</td><td class="muted">${(c.scopes || []).join("; ")}</td></tr>`).join("") + "</table>";
-  $("connectors").innerHTML = conns.map(c => `<p><b>${c.name}</b> <span class="badge ${c.status === "LIVE" ? "live" : "scaffold"}">${c.status}</span> <span class="muted">${c.id}</span> <button class="ghost" onclick="testConn('${c.id}')">Test connection</button> <span id="health-${c.id}"></span></p>`).join("") || "<p class='muted'>None configured yet.</p>";
+  $("connectors").innerHTML = conns.map(c => `<p><b>${c.name}</b> <span class="badge ${c.status === "LIVE" ? "live" : "scaffold"}">${c.status}</span> <span class="muted">${c.id}</span> <button class="ghost" data-roles="admin" onclick="testConn('${c.id}')">Test connection</button> <span id="health-${c.id}"></span></p>`).join("") || "<p class='muted'>None configured yet.</p>";
+  applyRoleUI();
 }
 async function testConn(id) { const out = await api(`/api/connectors/${id}/test`, {method: "POST"}); $("health-" + id).textContent = JSON.stringify(out); }
 async function loadApprovals() {
@@ -163,8 +189,8 @@ async function loadApprovals() {
     <button class="action" onclick="approve('${r.id}')">Approve &amp; apply</button>
     <button class="ghost" onclick="reject('${r.id}')">Reject</button></div>`).join("") || "<p class='muted'>Queue empty.</p>";
 }
-async function approve(id) { const out = await api(`/api/runs/${id}/approve`, {method: "POST", body: JSON.stringify({approver: $("appr-" + id).value})}); alert("Applied: " + out.applied_note); loadApprovals(); }
-async function reject(id) { await api(`/api/runs/${id}/reject`, {method: "POST", body: JSON.stringify({approver: $("appr-" + id).value})}); loadApprovals(); }
+async function approve(id) { try { const out = await api(`/api/runs/${id}/approve`, {method: "POST", body: JSON.stringify({approver: $("appr-" + id).value})}); alert("Applied: " + out.applied_note); } catch (e) { alert("Approve denied: " + e.message); } loadApprovals(); }
+async function reject(id) { try { await api(`/api/runs/${id}/reject`, {method: "POST", body: JSON.stringify({approver: $("appr-" + id).value})}); } catch (e) { alert("Reject denied: " + e.message); } loadApprovals(); }
 async function loadAudit() {
   const f = $("audit-filter").value; const entries = await api("/api/audit" + (f ? "?event_type=" + encodeURIComponent(f) : ""));
   $("audit").innerHTML = "<table><tr><th>#</th><th>Event</th><th>Actor</th><th>Summary</th><th>Hash</th></tr>" +
@@ -173,7 +199,12 @@ async function loadAudit() {
 async function verifyChain() { const out = await api("/api/audit/verify"); $("chain-out").textContent = out.intact ? `Chain intact (${out.checked} entries)` : `BROKEN at seq ${out.broken_at_seq}: ${out.reason}`; }
 async function loadSettings() { const s = await api("/api/settings"); $("settings-model").textContent = s.model + (s.placeholder ? " (placeholder)" : ""); }
 async function setModelFromSettings() { await api("/api/settings/model", {method: "PUT", body: JSON.stringify({model: $("settings-model-in").value})}); loadSettings(); }
+$("actor").value = localStorage.getItem("oap_actor") || "admin@example.com";
+$("role").value = localStorage.getItem("oap_role") || "admin";
+$("actor").addEventListener("change", saveIdentity);
+$("role").addEventListener("change", saveIdentity);
 (async () => {
+  await refreshMe();
   const cat = await api("/api/catalog");
   $("wiz-catalog").innerHTML = cat.map(c => `<option value="${c.id}">${c.name} — ${c.status}</option>`).join("");
   await refreshRunForm(); loadSettings();

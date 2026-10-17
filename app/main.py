@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from . import gateway, service
-from .auth import get_actor, validate_auth_config
+from .auth import Caller, get_actor, get_caller, validate_auth_config
 from .connectors import get_adapter, load_catalog, validate_config
 from .models import Agent, ConnectorInstance, MemoryItem, ModelSettings
 from .skills import load_skills
@@ -62,11 +62,27 @@ class PromoteIn(BaseModel):
 
 def create_app(store: Store | None = None) -> FastAPI:
     validate_auth_config()
-    app = FastAPI(title="Open Agent Plane", version="0.1.0")
+    app = FastAPI(title="Open Agent Plane", version="1.1.0")
     app.state.store = store or Store()
 
     def st(request: Request) -> Store:
         return request.app.state.store
+
+    # ---- RBAC ------------------------------------------------------------
+    def deny(request: Request, caller: Caller, action: str):
+        """Audit an authorization denial, then raise 403. Never returns."""
+        audit(st(request), "authz_denied", actor=caller.actor,
+              summary=f"authorization denied: role={caller.role} "
+                      f"attempted {action}",
+              detail=f"method={request.method} path={request.url.path} "
+                     f"actor={caller.actor} role={caller.role}")
+        raise HTTPException(
+            403, f"role {caller.role} may not perform: {action}")
+
+    def require_roles(request: Request, caller: Caller, action: str,
+                      *roles: str) -> None:
+        if caller.role not in roles:
+            deny(request, caller, action)
 
     # ---- basics ---------------------------------------------------------
     @app.get("/")
@@ -81,18 +97,27 @@ def create_app(store: Store | None = None) -> FastAPI:
                 "audit_chain": s.verify_audit_chain()}
 
     # ---- settings / model ----------------------------------------------
+    @app.get("/api/me")
+    def me(caller: Caller = Depends(get_caller)):
+        from .auth import auth_mode
+        return {"actor": caller.actor, "role": caller.role,
+                "auth_mode": auth_mode()}
+
     @app.get("/api/settings")
-    def get_settings(request: Request, actor: str = Depends(get_actor)):
+    def get_settings(request: Request, caller: Caller = Depends(get_caller)):
         s = st(request)
         settings = s.get_settings()
         return {"model": settings.model or gateway.TEST_MODEL_LABEL,
                 "placeholder": gateway.is_placeholder(settings.model),
+                "actor": caller.actor, "role": caller.role,
                 "evals": [e.model_dump(mode="json") for e in s.all_evals()]}
 
 
     @app.put("/api/settings/model")
-    def set_model(body: ModelIn, request: Request, actor: str = Depends(get_actor)):
+    def set_model(body: ModelIn, request: Request, caller: Caller = Depends(get_caller)):
+        require_roles(request, caller, "set the model", "admin")
         s = st(request)
+        actor = caller.actor
         s.put_settings(ModelSettings(model=body.model.strip(), updated_by=actor))
         audit(s, "model_set", actor=actor,
               summary=f"model set to {body.model or gateway.TEST_MODEL_LABEL}",
@@ -100,9 +125,10 @@ def create_app(store: Store | None = None) -> FastAPI:
         return {"model": body.model or gateway.TEST_MODEL_LABEL}
 
     @app.post("/api/settings/model/evaluate")
-    def evaluate(request: Request, actor: str = Depends(get_actor)):
+    def evaluate(request: Request, caller: Caller = Depends(get_caller)):
+        require_roles(request, caller, "evaluate the model", "admin")
         s = st(request)
-        results = gateway.evaluate_model(s, actor)
+        results = gateway.evaluate_model(s, caller.actor)
         return {"results": [r.model_dump(mode="json") for r in results]}
 
     # ---- connectors ------------------------------------------------------
@@ -125,7 +151,9 @@ def create_app(store: Store | None = None) -> FastAPI:
 
 
     @app.post("/api/connectors", status_code=201)
-    def add_connector(body: ConnectorIn, request: Request, actor: str = Depends(get_actor)):
+    def add_connector(body: ConnectorIn, request: Request, caller: Caller = Depends(get_caller)):
+        require_roles(request, caller, "configure a connector", "admin")
+        actor = caller.actor
         s = st(request)
         cat = load_catalog()
         entry = cat.get(body.catalog_id)
@@ -145,7 +173,9 @@ def create_app(store: Store | None = None) -> FastAPI:
         return inst.model_dump(mode="json")
 
     @app.post("/api/connectors/{instance_id}/test")
-    def test_connector(instance_id: str, request: Request, actor: str = Depends(get_actor)):
+    def test_connector(instance_id: str, request: Request, caller: Caller = Depends(get_caller)):
+        require_roles(request, caller, "test a connector", "admin")
+        actor = caller.actor
         s = st(request)
         inst = s.get_connector(instance_id)
         if inst is None:
@@ -166,7 +196,11 @@ def create_app(store: Store | None = None) -> FastAPI:
 
 
     @app.post("/api/agents", status_code=201)
-    def add_agent(body: AgentIn, request: Request, actor: str = Depends(get_actor)):
+    def add_agent(body: AgentIn, request: Request, caller: Caller = Depends(get_caller)):
+        require_roles(request, caller, "create an agent", "admin", "owner")
+        if caller.role != "admin" and body.owner != caller.actor:
+            deny(request, caller, "create an agent owned by someone else")
+        actor = caller.actor
         s = st(request)
         agent = Agent(**body.model_dump(), created_by=actor)
         s.put_agent(agent)
@@ -184,8 +218,14 @@ def create_app(store: Store | None = None) -> FastAPI:
     # ---- runs ------------------------------------------------------------
 
     @app.post("/api/runs", status_code=201)
-    def create_run(body: RunIn, request: Request, actor: str = Depends(get_actor)):
+    def create_run(body: RunIn, request: Request, caller: Caller = Depends(get_caller)):
+        require_roles(request, caller, "create a run", "admin", "owner", "user")
         s = st(request)
+        actor = caller.actor
+        if caller.role != "admin":
+            agent = s.get_agent(body.agent_id)
+            if agent is not None and agent.owner != actor:
+                deny(request, caller, "run an agent owned by someone else")
         from .models import Run
         run = Run(_store=s, **body.model_dump(), created_by=actor)
         run.save()
@@ -211,25 +251,34 @@ def create_app(store: Store | None = None) -> FastAPI:
 
 
     @app.post("/api/runs/{run_id}/approve")
-    def approve(run_id: str, body: ApprovalIn, request: Request, actor: str = Depends(get_actor)):
+    def approve(run_id: str, body: ApprovalIn, request: Request, caller: Caller = Depends(get_caller)):
+        require_roles(request, caller, "approve a run", "approver", "admin")
         s = st(request)
         run = s.get_run(run_id)
         if run is None:
             raise HTTPException(404, "run not found")
         if run.status != "awaiting_approval":
             raise HTTPException(409, f"run is {run.status}, not awaiting approval")
-        approver = body.approver or actor
+        approver = body.approver or caller.actor
+        if approver == run.created_by:
+            deny(request, caller,
+                 "approve a run they created (separation of duties)")
         return service.approve_run(s, run, approver).model_dump(mode="json")
 
     @app.post("/api/runs/{run_id}/reject")
-    def reject(run_id: str, body: ApprovalIn, request: Request, actor: str = Depends(get_actor)):
+    def reject(run_id: str, body: ApprovalIn, request: Request, caller: Caller = Depends(get_caller)):
+        require_roles(request, caller, "reject a run", "approver", "admin")
         s = st(request)
         run = s.get_run(run_id)
         if run is None:
             raise HTTPException(404, "run not found")
         if run.status != "awaiting_approval":
             raise HTTPException(409, f"run is {run.status}, not awaiting approval")
-        return service.reject_run(s, run, body.approver or actor, body.reason).model_dump(mode="json")
+        approver = body.approver or caller.actor
+        if approver == run.created_by:
+            deny(request, caller,
+                 "reject a run they created (separation of duties)")
+        return service.reject_run(s, run, approver, body.reason).model_dump(mode="json")
 
     # ---- memory ------------------------------------------------------------
 
@@ -241,7 +290,10 @@ def create_app(store: Store | None = None) -> FastAPI:
         return [m.model_dump(mode="json") for m in items]
 
     @app.post("/api/memory", status_code=201)
-    def add_memory(body: MemoryIn, request: Request, actor: str = Depends(get_actor)):
+    def add_memory(body: MemoryIn, request: Request, caller: Caller = Depends(get_caller)):
+        require_roles(request, caller, "add memory",
+                      "admin", "owner", "user", "approver")
+        actor = caller.actor
         s = st(request)
         if body.tier not in ("private", "team", "org"):
             raise HTTPException(422, "tier must be private|team|org")
@@ -255,13 +307,18 @@ def create_app(store: Store | None = None) -> FastAPI:
 
     @app.post("/api/memory/{item_id}/promote")
     def promote_memory(item_id: str, body: PromoteIn, request: Request,
-                       actor: str = Depends(get_actor)):
+                       caller: Caller = Depends(get_caller)):
         """Promotion private -> team is human-approved only, and audited."""
+        require_roles(request, caller, "promote memory", "approver", "admin")
+        actor = caller.actor
         s = st(request)
         item = s.get_memory(item_id)
         if item is None:
             raise HTTPException(404, "memory item not found")
         approver = body.approver or actor
+        if approver == item.owner:
+            deny(request, caller,
+                 "promote their own memory item (separation of duties)")
         promoted = MemoryItem(tier="team", owner=item.owner, content=item.content,
                               created_by=actor, promoted_from=item.id)
         s.put_memory(promoted)

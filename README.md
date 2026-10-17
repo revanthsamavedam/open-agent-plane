@@ -68,12 +68,13 @@ the pytest suite.
 | Area | Where |
 |---|---|
 | Agent registry + runs (reviewer veto, approval-gated writes) | `app/service.py`, `app/main.py` |
+| **RBAC (v1.1): admin / owner / approver / auditor / user roles, ownership-scoped runs, separation of duties on approvals, audited denials** | `app/auth.py`, `app/main.py`, [SECURITY.md](SECURITY.md) |
 | BYO model + certification eval gate | `app/gateway.py` |
 | Connector catalog (19 common enterprise connectors, YAML-driven) | `connectors/`, `app/connectors.py`, [CONNECTORS.md](CONNECTORS.md) |
 | Skills (versioned SKILL.md: daily-brief, data-lookup, draft-report) | `skills/` |
 | **Audit: append-only, hash-chained, exportable, tamper-evident** | `app/store.py`, [AUDIT.md](AUDIT.md) |
 | Memory: private / team (curated, approved promotion) / org tiers | `app/main.py` |
-| Auth: `AUTH_MODE=demo` or `jwt` (OIDC); no silent demo fallback | `app/auth.py`, [SECURITY.md](SECURITY.md) |
+| Auth: `AUTH_MODE=demo` or `jwt` (OIDC) + RBAC roles; no silent demo fallback | `app/auth.py`, [SECURITY.md](SECURITY.md) |
 | Architecture (from the Enterprise Muse blueprint) | [ARCHITECTURE.md](ARCHITECTURE.md) |
 
 ## Design rules
@@ -82,7 +83,10 @@ the pytest suite.
   *references* only (`env:`, `vault:`, `secret:`); adapters resolve them
   service-side and return only results.
 - **Writes are drafts until a named human approves them.** Reviewer first,
-  human second, apply last — all audited.
+  human second, apply last — all audited. And the approver is never the
+  person who created the run: RBAC roles (admin / owner / approver /
+  auditor / user) with separation of duties are enforced server-side,
+  and every denial lands in the audit trail as `authz_denied`.
 - **The audit trail is the product.** If it isn't in the audit trail, it
   didn't happen.
 - **Honest labels.** A connector is LIVE only when its adapter really
@@ -98,7 +102,9 @@ pytest -q
 Covers: connector contract tests for every catalog entry, the full demo
 flow over HTTP, audit-chain verification **including a tamper test**,
 persistence across store reopen, JWT/demo auth modes, memory promotion,
-and the model certification gate.
+the model certification gate, and the **RBAC matrix** (role gates,
+ownership-scoped runs, separation of duties, audited denials, JWT role
+claims).
 
 ## License
 

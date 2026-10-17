@@ -43,6 +43,13 @@ agents plus shared team agents, under one governance plane.
   `secret:`), validated at configuration time; raw-looking secrets are
   rejected. Adapters resolve references service-side. Agents — and the
   model — never see credential values.
+- Callers act in one of five RBAC roles (admin, owner, approver,
+  auditor, user), resolved from JWT role claims or, in demo mode, the
+  `X-Role` header. The server enforces the permission matrix (model
+  and connector administration are admin-only; runs and agent creation
+  are ownership-scoped for non-admins) and separation of duties on
+  approvals and memory promotion; every denial is itself an
+  `authz_denied` audit event. Full matrix: [SECURITY.md](SECURITY.md).
 
 ## Memory (3 tiers)
 
