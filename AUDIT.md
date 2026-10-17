@@ -31,6 +31,7 @@ Audit is a first-class feature, not a log file.
 | `reviewer_verdict` | Reviewer approved or vetoed a draft |
 | `approval` / `rejection` | Named human decision, with the approver's name |
 | `memory_added` / `memory_promoted` | Memory writes and tier promotions |
+| `memory_summary_requested` / `memory_summary_drafted` / `memory_summary_applied` | Governed memory summarization: run created, draft composed, and (only on named approval) the summary item stored with its source count |
 | `audit_exported` / `evidence_exported` | Exports are themselves audited |
 | `auth_failure` | A JWT-mode authentication failure |
 

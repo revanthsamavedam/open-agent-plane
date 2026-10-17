@@ -23,9 +23,10 @@ Unset model = an offline **TestModel placeholder** so the whole demo runs
 with zero keys. Placeholder runs and evals are labelled as placeholder —
 never presented as real model behavior or real certification.
 
-**Personal edition:** [`consumer/`](consumer/) is a bring-your-own-key
-consumer version of Open Agent Plane for general use — a stateless Vercel
-app where your agents, chats and model token live only in your browser.
+**Personal edition:** [`consumer/`](consumer/) is **PocketPlane** —
+"Your agents. Your model. In your pocket." — the bring-your-own-key
+personal edition of Open Agent Plane: a stateless Vercel app where your
+agents, chats, memory and model token live only in your browser.
 See [consumer/README.md](consumer/README.md).
 
 ## Quickstart
@@ -68,6 +69,20 @@ In the UI's **Setup wizard**:
 The same flow is scripted in `scripts/smoke.py` and covered end to end by
 the pytest suite.
 
+**Governed memory summarization (v1.2).** The `memory-summary` skill
+drafts a summary over memory items in one tier + owner scope
+(`POST /api/memory/summarize`). A summary is a **derived view, never a
+replacement**: the draft goes through the reviewer and a named human
+approval (never the run's creator), and only then is a
+`kind="summary"` item stored — carrying `source_ids` provenance to
+every item it was derived from, the generating run id, and the model
+label (placeholder runs produce a deterministic extractive digest and
+are labelled as such). Scope gates: private summaries cover the
+caller's own items (admins may target any owner), org summaries are
+admin-only to draft, cross-scope sources are denied and audited, and
+summaries are never silently folded into new summaries. Sources are
+never modified.
+
 ## What's inside
 
 | Area | Where |
@@ -76,9 +91,9 @@ the pytest suite.
 | **RBAC (v1.1): admin / owner / approver / auditor / user roles, ownership-scoped runs, separation of duties on approvals, audited denials** | `app/auth.py`, `app/main.py`, [SECURITY.md](SECURITY.md) |
 | BYO model + certification eval gate | `app/gateway.py` |
 | Connector catalog (19 common enterprise connectors, YAML-driven) | `connectors/`, `app/connectors.py`, [CONNECTORS.md](CONNECTORS.md) |
-| Skills (versioned SKILL.md: daily-brief, data-lookup, draft-report) | `skills/` |
+| Skills (versioned SKILL.md: daily-brief, data-lookup, draft-report, memory-summary) | `skills/` |
 | **Audit: append-only, hash-chained, exportable, tamper-evident** | `app/store.py`, [AUDIT.md](AUDIT.md) |
-| Memory: private / team (curated, approved promotion) / org tiers | `app/main.py` |
+| Memory: private / team (curated, approved promotion) / org tiers + **governed summarization (v1.2)** | `app/main.py`, `app/service.py` |
 | Auth: `AUTH_MODE=demo` or `jwt` (OIDC) + RBAC roles; no silent demo fallback | `app/auth.py`, [SECURITY.md](SECURITY.md) |
 | Architecture (from the Enterprise Muse blueprint) | [ARCHITECTURE.md](ARCHITECTURE.md) |
 
@@ -107,9 +122,10 @@ pytest -q
 Covers: connector contract tests for every catalog entry, the full demo
 flow over HTTP, audit-chain verification **including a tamper test**,
 persistence across store reopen, JWT/demo auth modes, memory promotion,
-the model certification gate, and the **RBAC matrix** (role gates,
+the model certification gate, the **RBAC matrix** (role gates,
 ownership-scoped runs, separation of duties, audited denials, JWT role
-claims).
+claims), and **governed memory summarization** (approval-gated summary
+storage, SoD, veto/reject paths, scope gates, provenance).
 
 ## License
 

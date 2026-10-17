@@ -159,6 +159,14 @@ class MemoryItem(BaseModel):
     created_by: str = ""
     promoted_from: str = ""
     created_at: datetime = Field(default_factory=utcnow)
+    # Summaries are derived views over other memory items — never
+    # replacements. A summary item records exactly which items it was
+    # derived from (source_ids), which approved run produced it, and
+    # which model generated it (placeholder labelled via the run).
+    kind: Literal["fact", "summary"] = "fact"
+    source_ids: list[str] = Field(default_factory=list)
+    generated_by_run_id: str = ""
+    model: str = ""
 
 
 class EvalResult(BaseModel):

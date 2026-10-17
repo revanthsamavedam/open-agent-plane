@@ -62,6 +62,8 @@ Permission matrix:
 | Approve / reject a run | ✓ | – | ✓ | – | – |
 | Add a memory item | ✓ | ✓ | ✓ | – | ✓ |
 | Promote a memory item (private → team) | ✓ | – | ✓ | – | – |
+| Draft a memory summary (private: own items only / team) | ✓ | ✓ | – | – | ✓ |
+| Draft an org memory summary | ✓ | – | – | – | – |
 
 Non-admin agent creation and runs are scoped by ownership: a non-admin
 owner creates agents only for themselves, and non-admins run only

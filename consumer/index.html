@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Open Agent Plane — Personal</title>
-<meta name="description" content="Your own personal AI agents, powered by your own model key. Everything stays in a SQLite database in your browser.">
+<title>PocketPlane — your agents, your model, in your pocket</title>
+<meta name="description" content="PocketPlane: your agents, your model, in your pocket. Personal AI agents powered by your own model key — everything stays in a SQLite database in your browser.">
 <link rel="stylesheet" href="/styles.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✈️</text></svg>">
 </head>
@@ -12,8 +12,9 @@
 
 <div id="bootOverlay" class="boot-overlay">
   <div class="boot-box">
-    <div class="boot-mark">✈️</div>
-    <p>Loading your on-device SQLite database…</p>
+    <div class="boot-logo">✈️</div>
+    <p class="boot-name">PocketPlane</p>
+    <p class="boot-sub">Loading your on-device SQLite database…</p>
   </div>
 </div>
 
@@ -21,58 +22,251 @@
   <div class="boot-box">
     <h3>⚠️ Database failed to start</h3>
     <p id="bootErrorMsg" class="boot-error-msg"></p>
-    <p>This app stores everything in a real SQLite database inside your
+    <p>PocketPlane stores everything in a real SQLite database inside your
     browser, and it won't run without it — nothing has been silently
     moved to weaker storage.</p>
     <button class="btn btn-primary" onclick="location.reload()">Retry</button>
   </div>
 </div>
 
-<header class="topbar">
-  <div class="brand">
-    <span class="brand-mark">✈️</span>
-    <span class="brand-name">Open Agent Plane <span class="brand-edition">Personal</span></span>
-  </div>
-  <span id="modeBadge" class="badge badge-demo">Demo mode</span>
-</header>
+<div class="app-shell">
 
-<div id="setupBanner" class="banner" hidden>
-  <p><strong>Welcome!</strong> You're in demo mode — replies are simulated.
-  Add your own model API token in <button class="linklike" data-goto="settings">Settings</button>
-  for real replies. Your key never leaves this browser except to call your provider.</p>
-  <button id="dismissBanner" class="banner-close" aria-label="Dismiss">×</button>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-tile">✈️</span>
+      <span class="brand-text">
+        <span class="brand-name">PocketPlane</span>
+        <span class="brand-by">by Open Agent Plane</span>
+      </span>
+    </div>
+    <span id="modeBadge" class="badge badge-demo">● Demo mode</span>
+    <nav class="railnav">
+      <button data-goto="chat" class="nav-btn active"><span class="nav-ico">💬</span><span>Chat</span></button>
+      <button data-goto="agents" class="nav-btn"><span class="nav-ico">🤖</span><span>Agents</span></button>
+      <button data-goto="memory" class="nav-btn"><span class="nav-ico">🧠</span><span>Memory</span></button>
+      <button data-goto="activity" class="nav-btn"><span class="nav-ico">📜</span><span>Activity</span></button>
+      <button data-goto="settings" class="nav-btn"><span class="nav-ico">⚙️</span><span>Settings</span></button>
+      <p class="rail-note">Your agents. Your model.<br>In your pocket.</p>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ======================= FIRST-RUN HERO ======================= -->
+    <section id="setupBanner" class="hero" hidden>
+      <button id="dismissBanner" class="hero-close" aria-label="Dismiss">×</button>
+      <p class="hero-overline">POCKETPLANE</p>
+      <h1 class="hero-title">Your agents. Your model.<br>In your pocket.</h1>
+      <p class="hero-sub">Personal AI agents that run on <strong>your own</strong> model key.
+      Everything — agents, chats, memory — lives in a SQLite database inside your browser.
+      Nothing is stored on our servers, ever.</p>
+      <div class="hero-ctas">
+        <button class="btn btn-primary btn-lg" data-goto="settings">Add your model key</button>
+        <button id="heroDemo" class="btn btn-glass btn-lg">Try the demo</button>
+      </div>
+      <p class="hero-note">You're in demo mode — replies are simulated until you add a key.</p>
+    </section>
+
+    <!-- ======================= CHAT ======================= -->
+    <section id="view-chat" class="view">
+      <div id="agentTabs" class="agent-tabs" role="tablist"></div>
+
+      <div class="chat-head card">
+        <span id="chatAvatar" class="avatar avatar-lg"><span class="avatar-inner">🤖</span></span>
+        <span class="chat-head-text">
+          <span id="threadTitle" class="thread-title"></span>
+          <span id="threadSub" class="thread-sub"></span>
+        </span>
+        <button id="clearThread" class="btn btn-ghost btn-sm">Clear</button>
+      </div>
+
+      <div id="messages" class="messages"></div>
+
+      <div id="typing" class="typing" hidden><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="typing-text">thinking</span></div>
+      <div id="chatError" class="error-box" hidden></div>
+
+      <form id="composer" class="composer">
+        <textarea id="composerInput" rows="1" placeholder="Message your agent…" enterkeyhint="send"></textarea>
+        <button type="submit" class="btn btn-send" id="sendBtn" aria-label="Send">↑</button>
+      </form>
+    </section>
+
+    <!-- ======================= AGENTS ======================= -->
+    <section id="view-agents" class="view" hidden>
+      <div class="view-head">
+        <div>
+          <h2>Your agents</h2>
+          <p class="view-sub">Each with its own persona, model and memory.</p>
+        </div>
+        <button id="newAgentBtn" class="btn btn-primary btn-sm">+ New agent</button>
+      </div>
+      <div id="agentList" class="card-list"></div>
+    </section>
+
+    <!-- ======================= MEMORY ======================= -->
+    <section id="view-memory" class="view" hidden>
+      <div class="view-head">
+        <div>
+          <h2>Memory</h2>
+          <p class="view-sub">Facts you keep, and summaries your agents can lean on. Summaries are derived views — originals never change.</p>
+        </div>
+      </div>
+
+      <div class="card toggle-card">
+        <label class="switch-row">
+          <span class="switch-text">
+            <strong>Use saved summaries as agent context</strong>
+            <span class="hint">When on, the latest personal summary and each agent's own latest summary are prepended (labelled as summaries) to that agent's system context.</span>
+          </span>
+          <span class="switch"><input type="checkbox" id="sumCtxToggle" checked><span class="slider"></span></span>
+        </label>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">✨ Summarize</h3>
+        <p class="hint">Generate a digest of a scope, review and edit it, then save.
+        Nothing is stored until you save — that's the gate. With no model key,
+        PocketPlane builds a deterministic on-device digest, labelled DEMO.</p>
+        <label>Scope
+          <select id="sumScope"></select>
+        </label>
+        <div class="row">
+          <button type="button" id="genSummary" class="btn btn-primary">Generate summary draft</button>
+        </div>
+        <div id="sumError" class="error-box" hidden></div>
+
+        <div id="summaryDraft" class="draft-card" hidden>
+          <div class="card-badges" id="sumDraftMeta"></div>
+          <label>Title
+            <input id="sumDraftTitle" type="text" maxlength="140">
+          </label>
+          <label>Draft — edit freely before saving
+            <textarea id="sumDraftContent" rows="8"></textarea>
+          </label>
+          <div class="row">
+            <button type="button" id="saveSummary" class="btn btn-primary">Save summary</button>
+            <button type="button" id="discardSummary" class="btn btn-ghost">Discard</button>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="section-title">Saved summaries</h3>
+      <div id="summaryList" class="card-list"></div>
+
+      <h3 class="section-title">Memory facts</h3>
+      <form id="memoryForm" class="card form-card">
+        <h3 id="memoryFormTitle" class="card-title">Add a memory fact</h3>
+        <label>Fact
+          <textarea id="memContent" rows="3" maxlength="2000" placeholder="e.g. I prefer terse answers with code first, explanation after."></textarea>
+        </label>
+        <label>Scope
+          <select id="memScope"></select>
+        </label>
+        <div class="row">
+          <button type="submit" class="btn btn-primary">Save fact</button>
+        </div>
+      </form>
+      <div id="factList" class="card-list"></div>
+    </section>
+
+    <!-- ======================= ACTIVITY ======================= -->
+    <section id="view-activity" class="view" hidden>
+      <div class="view-head">
+        <div>
+          <h2>Activity</h2>
+          <p class="view-sub">Every model call made from this browser — the personal echo of the enterprise audit trail. Stored only on this device.</p>
+        </div>
+        <button id="exportActivity" class="btn btn-ghost btn-sm">Export JSON</button>
+      </div>
+      <p id="activityTotals" class="totals"></p>
+      <div id="activityList" class="timeline"></div>
+    </section>
+
+    <!-- ======================= SETTINGS ======================= -->
+    <section id="view-settings" class="view" hidden>
+      <div class="view-head">
+        <div>
+          <h2>Settings</h2>
+          <p class="view-sub">Your model, your key, your data.</p>
+        </div>
+      </div>
+
+      <form id="settingsForm" class="card form-card">
+        <div class="shield-card">
+          <span class="shield-ico">🛡️</span>
+          <p><strong>Your key stays in this device's SQLite.</strong>
+          It's stored only inside your browser's PocketPlane database, sent
+          only to call your model provider, and never stored on our
+          servers — the server is stateless and keeps nothing about you.</p>
+        </div>
+
+        <h3 class="card-title">Your model</h3>
+        <label>Provider
+          <select id="setProvider">
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="openrouter">OpenRouter</option>
+            <option value="google">Google (Gemini)</option>
+            <option value="custom">Custom (OpenAI-compatible)</option>
+          </select>
+        </label>
+
+        <label>Model
+          <input id="setModel" type="text" list="modelPresets" maxlength="200" autocomplete="off" placeholder="e.g. gpt-4o-mini">
+          <datalist id="modelPresets"></datalist>
+        </label>
+
+        <label id="baseUrlRow" hidden>Base URL
+          <input id="setBaseUrl" type="url" maxlength="300" autocomplete="off" placeholder="https://your-endpoint.example.com/v1">
+        </label>
+
+        <label>API token
+          <span class="token-row">
+            <input id="setToken" type="password" maxlength="500" autocomplete="off" placeholder="Paste your provider API key">
+            <button type="button" id="toggleToken" class="btn btn-ghost btn-sm">Show</button>
+            <button type="button" id="clearToken" class="btn btn-ghost btn-sm">Clear</button>
+          </span>
+        </label>
+
+        <div class="row">
+          <button type="submit" class="btn btn-primary">Save settings</button>
+          <button type="button" id="testKey" class="btn btn-glass">Test connection</button>
+        </div>
+        <p id="testResult" class="test-result" hidden></p>
+      </form>
+
+      <div class="card form-card">
+        <h3 class="card-title">Your data</h3>
+        <p class="hint">Agents, chats, memory, summaries, settings and activity live in a real
+        SQLite database that runs inside your browser (SQLite compiled to
+        WebAssembly, persisted on this device). Download the actual
+        .sqlite file, export a JSON backup, or import either one.</p>
+        <label class="check">
+          <input type="checkbox" id="exportIncludeSettings">
+          <span>Include settings in JSON export — <strong>this includes your API token</strong>, in plain text. Only do this somewhere private.</span>
+        </label>
+        <div class="row">
+          <button id="exportDb" class="btn btn-glass">Download database (.sqlite)</button>
+          <button id="exportAll" class="btn btn-glass">Export all data (JSON)</button>
+          <label class="btn btn-glass file-btn">Import data
+            <input id="importFile" type="file" accept="application/json,.sqlite,.db" hidden>
+          </label>
+        </div>
+        <p id="dataMsg" class="test-result" hidden></p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p class="footer-brand">PocketPlane — the personal edition of <strong>Open Agent Plane</strong></p>
+    <p>Open source — <a href="https://github.com/revanthsamavedam/open-agent-plane" target="_blank" rel="noopener">github.com/revanthsamavedam/open-agent-plane</a></p>
+    <p class="footer-note">PocketPlane 0.3.0 · Everything stays in your browser. The <em>enterprise</em> edition adds team governance, RBAC and a tamper-evident server audit chain.</p>
+  </footer>
 </div>
 
-<main>
-  <!-- ======================= CHAT ======================= -->
-  <section id="view-chat" class="view">
-    <div id="agentTabs" class="agent-tabs" role="tablist"></div>
-
-    <div class="thread-head">
-      <span id="threadTitle" class="thread-title"></span>
-      <button id="clearThread" class="btn btn-ghost btn-sm">Clear thread</button>
-    </div>
-
-    <div id="messages" class="messages"></div>
-
-    <div id="typing" class="typing" hidden><span></span><span></span><span></span> thinking…</div>
-    <div id="chatError" class="error-box" hidden></div>
-
-    <form id="composer" class="composer">
-      <textarea id="composerInput" rows="1" placeholder="Message your agent…" enterkeyhint="send"></textarea>
-      <button type="submit" class="btn btn-primary" id="sendBtn">Send</button>
-    </form>
-  </section>
-
-  <!-- ======================= AGENTS ======================= -->
-  <section id="view-agents" class="view" hidden>
-    <div class="view-head">
-      <h2>Your agents</h2>
-      <button id="newAgentBtn" class="btn btn-primary btn-sm">+ New agent</button>
-    </div>
-    <div id="agentList" class="card-list"></div>
-
-    <form id="agentForm" class="card form-card" hidden>
+<!-- agent create/edit sheet -->
+<div id="agentSheet" class="sheet-overlay" hidden>
+  <div class="sheet">
+    <form id="agentForm" class="form-card">
       <h3 id="agentFormTitle">New agent</h3>
       <label>Name
         <input id="agentName" type="text" maxlength="60" required placeholder="e.g. Travel Planner">
@@ -92,98 +286,18 @@
         <button type="button" id="agentDelete" class="btn btn-danger" hidden>Delete</button>
       </div>
     </form>
-  </section>
-
-  <!-- ======================= ACTIVITY ======================= -->
-  <section id="view-activity" class="view" hidden>
-    <div class="view-head">
-      <h2>Activity</h2>
-      <button id="exportActivity" class="btn btn-ghost btn-sm">Export JSON</button>
-    </div>
-    <p class="hint">Every model call made from this browser is listed here — the
-    personal-edition echo of the enterprise audit trail. Stored only on this device.</p>
-    <p id="activityTotals" class="totals"></p>
-    <div id="activityList" class="card-list"></div>
-  </section>
-
-  <!-- ======================= SETTINGS ======================= -->
-  <section id="view-settings" class="view" hidden>
-    <h2>Settings</h2>
-
-    <form id="settingsForm" class="card form-card">
-      <h3>Your model</h3>
-      <p class="privacy-note">🔒 <strong>Your key stays on this device.</strong>
-      It's stored in this device's SQLite database (inside your browser), sent
-      only to call your model provider, and never stored on our servers —
-      the server is stateless and keeps nothing about you.</p>
-
-      <label>Provider
-        <select id="setProvider">
-          <option value="openai">OpenAI</option>
-          <option value="anthropic">Anthropic (Claude)</option>
-          <option value="openrouter">OpenRouter</option>
-          <option value="google">Google (Gemini)</option>
-          <option value="custom">Custom (OpenAI-compatible)</option>
-        </select>
-      </label>
-
-      <label>Model
-        <input id="setModel" type="text" list="modelPresets" maxlength="200" autocomplete="off" placeholder="e.g. gpt-4o-mini">
-        <datalist id="modelPresets"></datalist>
-      </label>
-
-      <label id="baseUrlRow" hidden>Base URL
-        <input id="setBaseUrl" type="url" maxlength="300" autocomplete="off" placeholder="https://your-endpoint.example.com/v1">
-      </label>
-
-      <label>API token
-        <span class="token-row">
-          <input id="setToken" type="password" maxlength="500" autocomplete="off" placeholder="Paste your provider API key">
-          <button type="button" id="toggleToken" class="btn btn-ghost btn-sm">Show</button>
-          <button type="button" id="clearToken" class="btn btn-ghost btn-sm">Clear</button>
-        </span>
-      </label>
-
-      <div class="row">
-        <button type="submit" class="btn btn-primary">Save settings</button>
-        <button type="button" id="testKey" class="btn">Test connection</button>
-      </div>
-      <p id="testResult" class="test-result" hidden></p>
-    </form>
-
-    <div class="card form-card">
-      <h3>Your data</h3>
-      <p class="hint">Agents, chats, settings and activity live in a real
-      SQLite database that runs inside your browser (SQLite compiled to
-      WebAssembly, persisted on this device). You can download the actual
-      .sqlite file, export a JSON backup, or import either one.</p>
-      <label class="check">
-        <input type="checkbox" id="exportIncludeSettings">
-        Include settings in JSON export — <strong>this includes your API token</strong>, in plain text. Only do this somewhere private.
-      </label>
-      <div class="row">
-        <button id="exportDb" class="btn">Download database (.sqlite)</button>
-        <button id="exportAll" class="btn">Export all data (JSON)</button>
-        <label class="btn file-btn">Import data
-          <input id="importFile" type="file" accept="application/json,.sqlite,.db" hidden>
-        </label>
-      </div>
-      <p id="dataMsg" class="test-result" hidden></p>
-    </div>
-  </section>
-</main>
-
-<footer class="footer">
-  <p>Open source — <a href="https://github.com/revanthsamavedam/open-agent-plane" target="_blank" rel="noopener">github.com/revanthsamavedam/open-agent-plane</a></p>
-  <p>Personal edition: everything stays in your browser. The <em>enterprise</em> edition adds team governance, RBAC and a tamper-evident server audit chain.</p>
-</footer>
+  </div>
+</div>
 
 <nav class="bottomnav">
-  <button data-goto="chat" class="nav-btn active">💬<span>Chat</span></button>
-  <button data-goto="agents" class="nav-btn">🤖<span>Agents</span></button>
-  <button data-goto="activity" class="nav-btn">📜<span>Activity</span></button>
-  <button data-goto="settings" class="nav-btn">⚙️<span>Settings</span></button>
+  <button data-goto="chat" class="nav-btn active"><span class="nav-ico">💬</span><span>Chat</span></button>
+  <button data-goto="agents" class="nav-btn"><span class="nav-ico">🤖</span><span>Agents</span></button>
+  <button data-goto="memory" class="nav-btn"><span class="nav-ico">🧠</span><span>Memory</span></button>
+  <button data-goto="activity" class="nav-btn"><span class="nav-ico">📜</span><span>Activity</span></button>
+  <button data-goto="settings" class="nav-btn"><span class="nav-ico">⚙️</span><span>Settings</span></button>
 </nav>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
 
 <script src="/assets/sql-wasm.js"></script>
 <script src="/app.js"></script>

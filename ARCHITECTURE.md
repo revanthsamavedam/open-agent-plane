@@ -58,6 +58,25 @@ agents plus shared team agents, under one governance plane.
   from a private item (the promotion is audited).
 - **Org** — versioned, read-only reference material (policies, runbooks).
 
+### Governed summarization
+
+Memory items are `kind="fact"` or `kind="summary"`. A summary is a
+**derived view, never a replacement**: it is produced by the
+`memory-summary` skill through the ordinary governed write path — a run
+drafts it (`POST /api/memory/summarize`), the reviewer can veto it, and
+a named human approver (never the run's creator) applies it. Only then
+is the summary stored, with provenance on the item itself:
+`source_ids` (every source item), `generated_by_run_id`, and the model
+label. Originals are never modified or deleted, and default source
+selection covers facts only, so summaries are not silently re-summarized.
+Scope gates mirror the tiers: private summaries are limited to the
+caller's own items (admins excepted), org summaries are admin-only to
+draft, and cross-scope source ids are denied and audited. With the
+offline placeholder model, the digest is deterministic and extractive
+and the run is labelled placeholder; with a real model, the memory-
+summary skill is behind the same per-skill certification gate as every
+other skill. Requested / drafted / applied are distinct audit events.
+
 ## Writes
 
 `draft → reviewer verdict → named human approval → applied`. Rejection

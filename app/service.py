@@ -14,7 +14,8 @@ from datetime import datetime, timezone
 from . import gateway
 from .connectors import get_adapter, load_catalog, summarize_result
 from .models import (
-    AppliedWrite, ReviewVerdict, Run, ToolCall, redact, sha256_text,
+    AppliedWrite, MemoryItem, ReviewVerdict, Run, ToolCall, redact,
+    sha256_text,
 )
 from .skills import load_skills
 from .store import Store, audit
@@ -37,6 +38,68 @@ def review_draft(run: Run, draft: str) -> ReviewVerdict:
     if ok:
         reasons.append("non-empty, no secret patterns, within size limits")
     return ReviewVerdict(approved=ok, reasons=reasons)
+
+
+SUMMARY_SKILL = "memory-summary"
+
+
+def extractive_digest(items: list[MemoryItem], tier: str, owner: str) -> str:
+    """Deterministic digest used when the model is the offline TestModel
+    placeholder (and as a fallback if a real-model call fails): the first
+    sentence of each source item, in source order, each tagged with the
+    source item id so provenance is visible in the draft itself."""
+    lines = [f"Digest of {len(items)} {tier} memory item(s) owned by {owner}:"]
+    for item in items:
+        text = " ".join(item.content.split())
+        first = text.split(". ")[0].strip()
+        if first and not first.endswith("."):
+            first += "."
+        lines.append(f"- [{item.id}] {first[:200]}")
+    return "\n".join(lines)
+
+
+def build_summary_draft(store: Store, run: Run, agent_name: str,
+                        agent_owner: str, label: str,
+                        placeholder: bool) -> str:
+    """Compose the memory-summary draft from its governed scope. Sources
+    were selected and validated by POST /api/memory/summarize; they are
+    re-loaded here and re-checked defensively (fail closed)."""
+    tier = str(run.params.get("summary_tier") or "")
+    owner = str(run.params.get("summary_owner") or "")
+    source_ids = [str(x) for x in (run.params.get("source_ids") or [])]
+    if run.skill != SUMMARY_SKILL or not tier or not source_ids:
+        raise ValueError(
+            "memory-summary runs must be created via POST /api/memory/summarize "
+            "with a tier + owner scope and selected sources")
+    items: list[MemoryItem] = []
+    for sid in source_ids:
+        item = store.get_memory(sid)
+        if item is None or item.tier != tier or item.owner != owner:
+            raise ValueError(f"summary source {sid} is outside scope {tier}/{owner}")
+        items.append(item)
+    if placeholder:
+        digest = extractive_digest(items, tier, owner)
+    else:
+        joined = "\n".join(f"[{it.id}] {it.content}" for it in items)
+        try:
+            digest, _, _ = gateway.generate(
+                store,
+                "Summarize the following memory items into a concise digest "
+                "of bullet points. Preserve names, decisions and facts; do "
+                f"not invent anything.\n\n{joined}")
+            if not digest.strip():
+                digest = extractive_digest(items, tier, owner)
+        except Exception:
+            digest = extractive_digest(items, tier, owner)
+    lines = [f"# memory-summary — {tier} memory for {owner}",
+             "",
+             f"Agent: {agent_name} (owner: {agent_owner})",
+             f"Model: {label}" + (" [placeholder]" if placeholder else ""),
+             "",
+             digest,
+             "",
+             f"Sources ({len(items)}): " + ", ".join(it.id for it in items)]
+    return "\n".join(lines)
 
 
 def execute_run(store: Store, run: Run, actor: str) -> Run:
@@ -108,16 +171,26 @@ def execute_run(store: Store, run: Run, actor: str) -> Run:
         run.model_used = label
         run.model_placeholder = placeholder
 
+        # memory-summary: the draft is a governed digest of the selected
+        # memory sources (validated scope lives in run.params).
+        summary_draft = None
+        if run.skill == SUMMARY_SKILL:
+            summary_draft = build_summary_draft(
+                store, run, agent.name, agent.owner, label, placeholder)
+
         if skill.write:
-            lines = [f"# {run.skill} — {run.input}".strip(),
-                     "", f"Agent: {agent.name} (owner: {agent.owner})",
-                     f"Model: {label}" + (" [placeholder]" if placeholder else "")]
-            if facts:
-                lines += ["", "Facts from connector read:", facts]
-            if model_note and not placeholder:
-                lines += ["", f"Model summary: {model_note}"]
-            lines += ["", f"Request: {run.input}"]
-            run.draft = "\n".join(lines)
+            if summary_draft is not None:
+                run.draft = summary_draft
+            else:
+                lines = [f"# {run.skill} — {run.input}".strip(),
+                         "", f"Agent: {agent.name} (owner: {agent.owner})",
+                         f"Model: {label}" + (" [placeholder]" if placeholder else "")]
+                if facts:
+                    lines += ["", "Facts from connector read:", facts]
+                if model_note and not placeholder:
+                    lines += ["", f"Model summary: {model_note}"]
+                lines += ["", f"Request: {run.input}"]
+                run.draft = "\n".join(lines)
             verdict = review_draft(run, run.draft)
             run.review = verdict
             audit(store, "reviewer_verdict", actor="reviewer-agent",
@@ -129,6 +202,15 @@ def execute_run(store: Store, run: Run, actor: str) -> Run:
                 run.status = "vetoed"
             else:
                 run.status = "awaiting_approval"
+            if summary_draft is not None:
+                audit(store, "memory_summary_drafted", actor=actor,
+                      agent_id=run.agent_id, run_id=run.id,
+                      summary=f"memory summary drafted: "
+                              f"{run.params.get('summary_tier')}/"
+                              f"{run.params.get('summary_owner')} from "
+                              f"{len(run.params.get('source_ids') or [])} source(s); "
+                              f"run {run.status}",
+                      detail=run.draft)
         else:
             run.draft = facts or (tool_result.get("content", "") if tool_result else "") \
                 or f"No connector read; nothing to look up for: {run.input}"
@@ -157,6 +239,21 @@ def approve_run(store: Store, run: Run, approver: str) -> Run:
     applied_note = "no connector: draft approved and recorded as applied in the run"
     live = False
     catalog_id = ""
+    summary_item: MemoryItem | None = None
+    if run.skill == SUMMARY_SKILL and not run.connector_id:
+        # The apply of a memory summary stores a NEW derived memory item.
+        # Sources are never modified; rejection/veto never reaches here.
+        tier = str(run.params.get("summary_tier") or "")
+        owner = str(run.params.get("summary_owner") or "")
+        source_ids = [str(x) for x in (run.params.get("source_ids") or [])]
+        summary_item = MemoryItem(
+            tier=tier, owner=owner, content=run.draft, kind="summary",
+            source_ids=source_ids, generated_by_run_id=run.id,
+            model=run.model_used, created_by=run.created_by)
+        store.put_memory(summary_item)
+        applied_note = (f"memory summary stored as {summary_item.id} "
+                        f"({len(source_ids)} source(s), {tier}/{owner}); "
+                        "sources unchanged")
     if run.connector_id:
         instance = store.get_connector(run.connector_id)
         if instance is not None:
@@ -178,6 +275,14 @@ def approve_run(store: Store, run: Run, approver: str) -> Run:
     audit(store, "approval", actor=approver, agent_id=run.agent_id, run_id=run.id,
           connector_id=run.connector_id,
           summary=f"approved by {approver}; applied: {applied_note}", detail=run.draft)
+    if summary_item is not None:
+        audit(store, "memory_summary_applied", actor=approver,
+              agent_id=run.agent_id, run_id=run.id,
+              summary=f"memory summary applied: {summary_item.id} stored for "
+                      f"{summary_item.tier}/{summary_item.owner} from "
+                      f"{len(summary_item.source_ids)} source(s) "
+                      f"(model: {summary_item.model or 'unknown'})",
+              detail=run.draft)
     return run
 
 

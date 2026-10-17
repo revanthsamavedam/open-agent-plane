@@ -58,11 +58,19 @@ class MemoryIn(BaseModel):
 class PromoteIn(BaseModel):
     approver: str = ""
 
+class SummarizeIn(BaseModel):
+    agent_id: str
+    tier: str
+    owner: str = ""
+    source_item_ids: list[str] = Field(default_factory=list)
+    limit: int = 20
+    input: str = ""
+
 
 
 def create_app(store: Store | None = None) -> FastAPI:
     validate_auth_config()
-    app = FastAPI(title="Open Agent Plane", version="1.1.0")
+    app = FastAPI(title="Open Agent Plane", version="1.2.0")
     app.state.store = store or Store()
 
     def st(request: Request) -> Store:
@@ -304,6 +312,83 @@ def create_app(store: Store | None = None) -> FastAPI:
               summary=f"memory added to {body.tier} tier", detail=body.content)
         return item.model_dump(mode="json")
 
+
+    @app.post("/api/memory/summarize", status_code=201)
+    def summarize_memory(body: SummarizeIn, request: Request,
+                         caller: Caller = Depends(get_caller)):
+        """Create a governed memory-summary RUN (skill: memory-summary).
+
+        The summary is a WRITE: the run drafts it, the reviewer can veto,
+        and a named human must approve (never the run's creator) before
+        a kind="summary" memory item is stored. Originals never change.
+        Scope gates: private = the caller's own items (admin: any
+        owner); org drafting is admin-only; auditors may never draft.
+        """
+        require_roles(request, caller, "draft a memory summary",
+                      "admin", "owner", "user")
+        s = st(request)
+        actor = caller.actor
+        tier = body.tier.strip().lower()
+        if tier not in ("private", "team", "org"):
+            raise HTTPException(422, "tier must be private|team|org")
+        if tier == "org":
+            require_roles(request, caller, "draft an org memory summary",
+                          "admin")
+            owner = body.owner.strip() or "org"
+        elif tier == "private":
+            owner = body.owner.strip() or actor
+            if caller.role != "admin" and owner != actor:
+                deny(request, caller,
+                     "summarize another user's private memory")
+        else:  # team
+            owner = body.owner.strip()
+            if not owner:
+                raise HTTPException(
+                    422, "team summaries require an owner (team name)")
+        agent = s.get_agent(body.agent_id)
+        if agent is None:
+            raise HTTPException(404, "agent not found")
+        if caller.role != "admin" and agent.owner != actor:
+            deny(request, caller, "run an agent owned by someone else")
+        # Source selection: explicit ids (validated against the scope)
+        # or the latest N *fact* items of the scope (summaries are never
+        # silently folded into new summaries).
+        if body.source_item_ids:
+            items = []
+            for sid in body.source_item_ids:
+                item = s.get_memory(sid)
+                if item is None:
+                    raise HTTPException(422, f"unknown memory item: {sid}")
+                if item.tier != tier or item.owner != owner:
+                    deny(request, caller,
+                         "summarize memory items outside the requested scope")
+                items.append(item)
+        else:
+            scoped = [m for m in s.all_memory()
+                      if m.tier == tier and m.owner == owner
+                      and m.kind == "fact"]
+            scoped.sort(key=lambda m: (m.created_at, m.id))
+            limit = max(1, min(body.limit or 20, 100))
+            items = scoped[-limit:]
+        if not items:
+            raise HTTPException(
+                422, f"no memory items in scope {tier}/{owner} to summarize")
+        source_ids = [m.id for m in items]
+        from .models import Run
+        run = Run(_store=s, agent_id=agent.id, skill="memory-summary",
+                  input=body.input or f"Summarize {tier} memory for {owner}",
+                  params={"summary_tier": tier, "summary_owner": owner,
+                          "source_ids": source_ids,
+                          "source_count": len(source_ids)},
+                  created_by=actor)
+        run.save()
+        audit(s, "memory_summary_requested", actor=actor, agent_id=agent.id,
+              run_id=run.id,
+              summary=f"memory summary requested: {tier}/{owner} from "
+                      f"{len(source_ids)} source(s) via agent {agent.name}",
+              detail=", ".join(source_ids))
+        run = service.execute_run(s, run, actor)
+        return run.model_dump(mode="json")
 
     @app.post("/api/memory/{item_id}/promote")
     def promote_memory(item_id: str, body: PromoteIn, request: Request,

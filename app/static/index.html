@@ -34,6 +34,7 @@
     <button data-page="agents">Agents</button>
     <button data-page="connectors">Connectors</button>
     <button data-page="approvals">Approvals</button>
+    <button data-page="memory">Memory</button>
     <button data-page="audit">Audit</button>
     <button data-page="settings">Settings</button>
   </nav>
@@ -71,7 +72,7 @@
       <input id="wiz-run-query" placeholder='Optional params JSON, e.g. {"query":"SELECT * FROM records"}'>
       <button class="action" onclick="wizRun()">Run</button>
       <pre id="wiz-run-out"></pre>
-      <p class="muted">Write skills land in Approvals. Read-only runs finish immediately. Everything is in Audit.</p></div>
+      <p class="muted">Write skills land in Approvals. Read-only runs finish immediately. Everything is in Audit. The <b>memory-summary</b> skill is not run from here — draft governed memory summaries from the Memory page.</p></div>
   </section>
 
   <section id="page-dashboard"><h2>Runs</h2><div class="card"><button class="ghost" onclick="loadRuns()">Refresh</button><div id="runs"></div></div></section>
@@ -79,6 +80,24 @@
   <section id="page-connectors"><h2>Connector catalog</h2><div class="card"><div id="catalog"></div></div>
     <h2>Configured connectors</h2><div class="card"><div id="connectors"></div></div></section>
   <section id="page-approvals"><h2>Approvals queue</h2><div class="card"><button class="ghost" onclick="loadApprovals()">Refresh</button><div id="approvals"></div></div></section>
+  <section id="page-memory"><h2>Memory (3 tiers)</h2>
+    <div class="card"><h3>Add a memory fact</h3>
+      <select id="mem-tier"><option>private</option><option>team</option><option>org</option></select>
+      <input id="mem-owner" placeholder="Owner (blank = you; team name for team tier)">
+      <input id="mem-content" placeholder="Fact, e.g. prefers terse briefs">
+      <button class="action" onclick="addMemoryItem()">Add fact</button>
+      <pre id="mem-add-out"></pre></div>
+    <div class="card"><h3>Draft a governed summary</h3>
+      <p class="muted">A summary is a <b>derived view</b>, never a replacement: the run drafts it, the reviewer can veto, and a named human (never the run's creator) must approve before a summary item is stored with provenance to its sources. Private = your own items (admins: any owner). Org summaries are admin-only to draft.</p>
+      <select id="sum-agent"></select>
+      <select id="sum-tier"><option>private</option><option>team</option><option>org</option></select>
+      <input id="sum-owner" placeholder="Owner scope (blank = you for private; team name for team)">
+      <input id="sum-limit" type="number" value="20" min="1" max="100" style="width:110px;display:inline"> <span class="muted">latest N facts (ignored when source ids are given)</span>
+      <input id="sum-sources" placeholder="Optional: explicit source item ids, comma-separated">
+      <button class="action" onclick="draftSummary()">Draft summary (skill: memory-summary)</button>
+      <pre id="sum-out"></pre></div>
+    <div class="card"><h3>Items</h3><button class="ghost" onclick="loadMemory()">Refresh</button><div id="memory"></div></div>
+  </section>
   <section id="page-audit"><h2>Audit trail (append-only, hash-chained)</h2>
     <div class="card">
       <input id="audit-filter" placeholder="filter by event type, e.g. tool_call" style="width:260px;display:inline">
@@ -129,7 +148,7 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   document.querySelectorAll("nav button").forEach(x => x.classList.remove("active"));
   document.querySelectorAll("main section").forEach(x => x.classList.remove("active"));
   b.classList.add("active"); $("page-" + b.dataset.page).classList.add("active");
-  ({dashboard: loadRuns, agents: loadAgents, connectors: loadConnectors, approvals: loadApprovals, audit: loadAudit, settings: loadSettings}[b.dataset.page] || (() => {}))();
+  ({dashboard: loadRuns, agents: loadAgents, connectors: loadConnectors, approvals: loadApprovals, memory: loadMemory, audit: loadAudit, settings: loadSettings}[b.dataset.page] || (() => {}))();
 });
 async function wizSetModel() {
   const out = await api("/api/settings/model", {method: "PUT", body: JSON.stringify({model: $("wiz-model").value})});
@@ -155,7 +174,7 @@ async function wizAddAgent() {
 async function refreshRunForm() {
   const [agents, skills, conns] = await Promise.all([api("/api/agents"), api("/api/skills"), api("/api/connectors")]);
   $("wiz-run-agent").innerHTML = agents.map(a => `<option value="${a.id}">${a.name}</option>`).join("");
-  $("wiz-run-skill").innerHTML = skills.map(s => `<option>${s.name}</option>`).join("");
+  $("wiz-run-skill").innerHTML = skills.filter(s => s.name !== "memory-summary").map(s => `<option>${s.name}</option>`).join("");
   $("wiz-run-conn").innerHTML = `<option value="">(no connector)</option>` + conns.map(c => `<option value="${c.id}">${c.name} (${c.status})</option>`).join("");
 }
 async function wizRun() {
@@ -191,6 +210,38 @@ async function loadApprovals() {
 }
 async function approve(id) { try { const out = await api(`/api/runs/${id}/approve`, {method: "POST", body: JSON.stringify({approver: $("appr-" + id).value})}); alert("Applied: " + out.applied_note); } catch (e) { alert("Approve denied: " + e.message); } loadApprovals(); }
 async function reject(id) { try { await api(`/api/runs/${id}/reject`, {method: "POST", body: JSON.stringify({approver: $("appr-" + id).value})}); } catch (e) { alert("Reject denied: " + e.message); } loadApprovals(); }
+async function loadMemory() {
+  const [items, agents] = await Promise.all([api("/api/memory"), api("/api/agents")]);
+  $("sum-agent").innerHTML = agents.map(a => `<option value="${a.id}">${a.name}</option>`).join("");
+  $("memory").innerHTML = items.length ? "<table><tr><th>Tier</th><th>Kind</th><th>Owner</th><th>Content</th><th>Provenance</th></tr>" +
+    items.map(m => {
+      const kind = m.kind === "summary"
+        ? `<span class="badge live">Summary</span> ${(m.source_ids || []).length} sources`
+        : `<span class="badge">Fact</span>`;
+      const prov = m.kind === "summary"
+        ? `<span class="muted">run ${m.generated_by_run_id || "—"} · model ${m.model || "—"}<br>sources: ${(m.source_ids || []).join(", ")}</span>`
+        : (m.promoted_from ? `<span class="muted">promoted from ${m.promoted_from}</span>` : "");
+      return `<tr><td>${m.tier}</td><td>${kind}</td><td>${m.owner}</td><td><pre style="margin:0">${m.content.replace(/</g, "&lt;")}</pre></td><td>${prov}</td></tr>`;
+    }).join("") + "</table>"
+    : "<p class='muted'>No memory items yet.</p>";
+}
+async function addMemoryItem() {
+  try {
+    const out = await api("/api/memory", {method: "POST", body: JSON.stringify({
+      tier: $("mem-tier").value, owner: $("mem-owner").value, content: $("mem-content").value})});
+    $("mem-add-out").textContent = "Added: " + out.id; loadMemory();
+  } catch (e) { $("mem-add-out").textContent = "Denied/failed: " + e.message; }
+}
+async function draftSummary() {
+  try {
+    const ids = $("sum-sources").value.split(",").map(x => x.trim()).filter(Boolean);
+    const out = await api("/api/memory/summarize", {method: "POST", body: JSON.stringify({
+      agent_id: $("sum-agent").value, tier: $("sum-tier").value, owner: $("sum-owner").value,
+      source_item_ids: ids, limit: parseInt($("sum-limit").value || "20", 10)})});
+    $("sum-out").textContent = `Run ${out.id}: status=${out.status} model=${out.model_used}${out.model_placeholder ? " (placeholder)" : ""}\n\n${out.draft || out.error || ""}\n\nIf awaiting approval, decide it in the Approvals queue (a different person than the creator).`;
+    loadMemory();
+  } catch (e) { $("sum-out").textContent = "Denied/failed: " + e.message; }
+}
 async function loadAudit() {
   const f = $("audit-filter").value; const entries = await api("/api/audit" + (f ? "?event_type=" + encodeURIComponent(f) : ""));
   $("audit").innerHTML = "<table><tr><th>#</th><th>Event</th><th>Actor</th><th>Summary</th><th>Hash</th></tr>" +

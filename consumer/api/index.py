@@ -1,4 +1,4 @@
-"""Open Agent Plane — Personal (consumer edition) API.
+"""PocketPlane (consumer edition of Open Agent Plane) API.
 
 A STATELESS proxy. The visitor's own model API key arrives per-request in
 the JSON body, is used exactly once to call their chosen provider, and is
@@ -21,7 +21,7 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.3.0"
 
 MAX_MESSAGES = 50
 MAX_CONTENT_CHARS = 8_000
@@ -161,7 +161,7 @@ def _build_call(provider: str, model: str, api_key: str, base_url: str,
         headers = {"Authorization": f"Bearer {api_key}",
                    "Content-Type": "application/json"}
         if provider == "openrouter":
-            headers["X-Title"] = "Open Agent Plane Personal"
+            headers["X-Title"] = "PocketPlane"
         return url, headers, _openai_style_payload(model, system, messages,
                                                    max_tokens)
 
@@ -292,12 +292,12 @@ async def _call_provider(req, messages: list[Message],
 
 # ---------------------------------------------------------------- routes
 
-app = FastAPI(title="Open Agent Plane — Personal", version=APP_VERSION)
+app = FastAPI(title="PocketPlane", version=APP_VERSION)
 
 
 @app.get("/api/health")
 async def health() -> dict:
-    return {"ok": True, "app": "open-agent-plane-personal",
+    return {"ok": True, "app": "pocketplane",
             "version": APP_VERSION, "stateless": True}
 
 

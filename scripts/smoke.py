@@ -66,7 +66,8 @@ def main():
     agent = call("POST", "/api/agents", {
         "name": "Ops Assistant", "owner": "ops-lead@example.com",
         "allowed_connectors": [conn["id"]],
-        "allowed_skills": ["daily-brief", "data-lookup", "draft-report"],
+        "allowed_skills": ["daily-brief", "data-lookup", "draft-report",
+                           "memory-summary"],
     })
 
     run_body = {
@@ -111,6 +112,50 @@ def main():
     pack = call("GET", f"/api/runs/{run['id']}/evidence")
     assert pack["chain_verification"]["intact"] and pack["approvals"]
     print("evidence pack ok:", run["id"])
+
+    # --- governed memory summarization (v1.2) -------------------------
+    facts = [call("POST", "/api/memory",
+                  {"tier": "private", "content": c})
+             for c in ("Deploys happen on Tuesdays at 10:00.",
+                       "The staging database is refreshed nightly.",
+                       "Priya owns the release checklist.")]
+    srun = call("POST", "/api/memory/summarize",
+                {"agent_id": agent["id"], "tier": "private"})
+    assert srun["status"] == "awaiting_approval", srun
+    assert srun["model_placeholder"] is True, srun
+    print("memory summary drafted (placeholder):", srun["id"],
+          "sources:", len(srun["params"]["source_ids"]))
+
+    items = call("GET", "/api/memory?tier=private")
+    assert not any(m["kind"] == "summary" for m in items), \
+        "summary must not be stored before approval"
+
+    # Separation of duties applies to summary approvals too.
+    call("POST", f"/api/runs/{srun['id']}/approve", {}, expect=403)
+    print("rbac: summary creator denied own approval (403)")
+
+    applied = call("POST", f"/api/runs/{srun['id']}/approve",
+                   {"approver": "approver@example.com"}, headers=APPROVER)
+    assert applied["status"] == "applied", applied
+    items = call("GET", "/api/memory?tier=private")
+    summaries = [m for m in items if m["kind"] == "summary"]
+    assert len(summaries) == 1, items
+    summary = summaries[0]
+    assert summary["source_ids"] == [f["id"] for f in facts], summary
+    assert summary["generated_by_run_id"] == srun["id"]
+    assert len([m for m in items if m["kind"] == "fact"]) == 3, \
+        "sources must remain (summary is a derived view)"
+    print("memory summary stored:", summary["id"],
+          "from", len(summary["source_ids"]), "sources; originals intact")
+
+    entries = call("GET", "/api/audit")
+    types = sorted({e["event_type"] for e in entries})
+    for expected in ("memory_summary_requested", "memory_summary_drafted",
+                     "memory_summary_applied"):
+        assert expected in types, f"missing audit event {expected}"
+    verify = call("GET", "/api/audit/verify")
+    assert verify["intact"], verify
+    print("audit chain still intact:", verify)
     print("SMOKE PASSED")
 
 
