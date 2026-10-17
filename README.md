@@ -23,6 +23,11 @@ Unset model = an offline **TestModel placeholder** so the whole demo runs
 with zero keys. Placeholder runs and evals are labelled as placeholder —
 never presented as real model behavior or real certification.
 
+**Personal edition:** [`consumer/`](consumer/) is a bring-your-own-key
+consumer version of Open Agent Plane for general use — a stateless Vercel
+app where your agents, chats and model token live only in your browser.
+See [consumer/README.md](consumer/README.md).
+
 ## Quickstart
 
 ```bash

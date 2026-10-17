@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Open Agent Plane — Personal</title>
+<meta name="description" content="Your own personal AI agents, powered by your own model key. Everything stays in your browser.">
+<link rel="stylesheet" href="/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✈️</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">✈️</span>
+    <span class="brand-name">Open Agent Plane <span class="brand-edition">Personal</span></span>
+  </div>
+  <span id="modeBadge" class="badge badge-demo">Demo mode</span>
+</header>
+
+<div id="setupBanner" class="banner" hidden>
+  <p><strong>Welcome!</strong> You're in demo mode — replies are simulated.
+  Add your own model API token in <button class="linklike" data-goto="settings">Settings</button>
+  for real replies. Your key never leaves this browser except to call your provider.</p>
+  <button id="dismissBanner" class="banner-close" aria-label="Dismiss">×</button>
+</div>
+
+<main>
+  <!-- ======================= CHAT ======================= -->
+  <section id="view-chat" class="view">
+    <div id="agentTabs" class="agent-tabs" role="tablist"></div>
+
+    <div class="thread-head">
+      <span id="threadTitle" class="thread-title"></span>
+      <button id="clearThread" class="btn btn-ghost btn-sm">Clear thread</button>
+    </div>
+
+    <div id="messages" class="messages"></div>
+
+    <div id="typing" class="typing" hidden><span></span><span></span><span></span> thinking…</div>
+    <div id="chatError" class="error-box" hidden></div>
+
+    <form id="composer" class="composer">
+      <textarea id="composerInput" rows="1" placeholder="Message your agent…" enterkeyhint="send"></textarea>
+      <button type="submit" class="btn btn-primary" id="sendBtn">Send</button>
+    </form>
+  </section>
+
+  <!-- ======================= AGENTS ======================= -->
+  <section id="view-agents" class="view" hidden>
+    <div class="view-head">
+      <h2>Your agents</h2>
+      <button id="newAgentBtn" class="btn btn-primary btn-sm">+ New agent</button>
+    </div>
+    <div id="agentList" class="card-list"></div>
+
+    <form id="agentForm" class="card form-card" hidden>
+      <h3 id="agentFormTitle">New agent</h3>
+      <label>Name
+        <input id="agentName" type="text" maxlength="60" required placeholder="e.g. Travel Planner">
+      </label>
+      <label>Emoji
+        <input id="agentEmoji" type="text" maxlength="4" placeholder="🤖">
+      </label>
+      <label>Persona (system prompt)
+        <textarea id="agentPersona" rows="5" maxlength="4000" placeholder="You are a…"></textarea>
+      </label>
+      <label>Model override <span class="hint">(optional — blank uses your Settings model)</span>
+        <input id="agentModel" type="text" maxlength="200" placeholder="e.g. gpt-4o">
+      </label>
+      <div class="row">
+        <button type="submit" class="btn btn-primary">Save agent</button>
+        <button type="button" id="agentFormCancel" class="btn btn-ghost">Cancel</button>
+        <button type="button" id="agentDelete" class="btn btn-danger" hidden>Delete</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- ======================= ACTIVITY ======================= -->
+  <section id="view-activity" class="view" hidden>
+    <div class="view-head">
+      <h2>Activity</h2>
+      <button id="exportActivity" class="btn btn-ghost btn-sm">Export JSON</button>
+    </div>
+    <p class="hint">Every model call made from this browser is listed here — the
+    personal-edition echo of the enterprise audit trail. Stored only on this device.</p>
+    <p id="activityTotals" class="totals"></p>
+    <div id="activityList" class="card-list"></div>
+  </section>
+
+  <!-- ======================= SETTINGS ======================= -->
+  <section id="view-settings" class="view" hidden>
+    <h2>Settings</h2>
+
+    <form id="settingsForm" class="card form-card">
+      <h3>Your model</h3>
+      <p class="privacy-note">🔒 <strong>Your key stays in this browser.</strong>
+      It's sent only to call your model provider and is never stored on our servers —
+      this app has no database and keeps nothing about you.</p>
+
+      <label>Provider
+        <select id="setProvider">
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic (Claude)</option>
+          <option value="openrouter">OpenRouter</option>
+          <option value="google">Google (Gemini)</option>
+          <option value="custom">Custom (OpenAI-compatible)</option>
+        </select>
+      </label>
+
+      <label>Model
+        <input id="setModel" type="text" list="modelPresets" maxlength="200" autocomplete="off" placeholder="e.g. gpt-4o-mini">
+        <datalist id="modelPresets"></datalist>
+      </label>
+
+      <label id="baseUrlRow" hidden>Base URL
+        <input id="setBaseUrl" type="url" maxlength="300" autocomplete="off" placeholder="https://your-endpoint.example.com/v1">
+      </label>
+
+      <label>API token
+        <span class="token-row">
+          <input id="setToken" type="password" maxlength="500" autocomplete="off" placeholder="Paste your provider API key">
+          <button type="button" id="toggleToken" class="btn btn-ghost btn-sm">Show</button>
+          <button type="button" id="clearToken" class="btn btn-ghost btn-sm">Clear</button>
+        </span>
+      </label>
+
+      <div class="row">
+        <button type="submit" class="btn btn-primary">Save settings</button>
+        <button type="button" id="testKey" class="btn">Test connection</button>
+      </div>
+      <p id="testResult" class="test-result" hidden></p>
+    </form>
+
+    <div class="card form-card">
+      <h3>Your data</h3>
+      <p class="hint">Agents, chats and activity live only in this browser's storage.
+      Export a backup, or import one on another device.</p>
+      <label class="check">
+        <input type="checkbox" id="exportIncludeSettings">
+        Include settings in export — <strong>this includes your API token</strong>, in plain text. Only do this somewhere private.
+      </label>
+      <div class="row">
+        <button id="exportAll" class="btn">Export all data</button>
+        <label class="btn file-btn">Import data
+          <input id="importFile" type="file" accept="application/json" hidden>
+        </label>
+      </div>
+      <p id="dataMsg" class="test-result" hidden></p>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <p>Open source — <a href="https://github.com/revanthsamavedam/open-agent-plane" target="_blank" rel="noopener">github.com/revanthsamavedam/open-agent-plane</a></p>
+  <p>Personal edition: everything stays in your browser. The <em>enterprise</em> edition adds team governance, RBAC and a tamper-evident server audit chain.</p>
+</footer>
+
+<nav class="bottomnav">
+  <button data-goto="chat" class="nav-btn active">💬<span>Chat</span></button>
+  <button data-goto="agents" class="nav-btn">🤖<span>Agents</span></button>
+  <button data-goto="activity" class="nav-btn">📜<span>Activity</span></button>
+  <button data-goto="settings" class="nav-btn">⚙️<span>Settings</span></button>
+</nav>
+
+<script src="/app.js"></script>
+</body>
+</html>
