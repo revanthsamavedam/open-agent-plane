@@ -68,7 +68,7 @@ def main():
         # can never pass that way. Vercel's file store dedupes globally
         # by SHA-1, and that stock sql.js binary is already in it, so
         # large files are referenced by digest without an upload.
-        if len(data) > 90_000:
+        if len(data) > 95_000:
             print("referencing by sha (too large for upload argv):",
                   name, sha[:10], len(data), "bytes")
         else:

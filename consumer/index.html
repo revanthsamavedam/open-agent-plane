@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>PocketPlane — your agents, your model, in your pocket</title>
-<meta name="description" content="PocketPlane: your agents, your model, in your pocket. Personal AI agents powered by your own model key — everything stays in a SQLite database in your browser.">
+<meta name="description" content="PocketPlane: your agents, your model, in your pocket. Create your own agents, connect your own model key (OpenAI, Anthropic, Google or OpenRouter), and keep everything on your device — no account, no server copy.">
 <link rel="stylesheet" href="/styles.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✈️</text></svg>">
 </head>
@@ -14,17 +14,17 @@
   <div class="boot-box">
     <div class="boot-logo">✈️</div>
     <p class="boot-name">PocketPlane</p>
-    <p class="boot-sub">Loading your on-device SQLite database…</p>
+    <p class="boot-sub">Loading your agents…</p>
   </div>
 </div>
 
 <div id="bootError" class="boot-overlay" hidden>
   <div class="boot-box">
-    <h3>⚠️ Database failed to start</h3>
+    <h3>⚠️ Something went wrong</h3>
     <p id="bootErrorMsg" class="boot-error-msg"></p>
-    <p>PocketPlane stores everything in a real SQLite database inside your
-    browser, and it won't run without it — nothing has been silently
-    moved to weaker storage.</p>
+    <p>Your saved data hasn't been changed or moved anywhere — it's still
+    on this device. Try again, and if it keeps happening, reopen
+    PocketPlane in a fresh tab.</p>
     <button class="btn btn-primary" onclick="location.reload()">Retry</button>
   </div>
 </div>
@@ -39,9 +39,10 @@
         <span class="brand-by">by Open Agent Plane</span>
       </span>
     </div>
-    <span id="modeBadge" class="badge badge-demo">● Demo mode</span>
+    <span id="modeBadge" class="badge badge-demo" role="button" tabindex="0" title="Your connection status — tap to connect your model">● Demo mode</span>
     <nav class="railnav">
       <button data-goto="chat" class="nav-btn active"><span class="nav-ico">💬</span><span>Chat</span></button>
+      <button data-goto="team" class="nav-btn"><span class="nav-ico">👥</span><span>Team</span></button>
       <button data-goto="agents" class="nav-btn"><span class="nav-ico">🤖</span><span>Agents</span></button>
       <button data-goto="memory" class="nav-btn"><span class="nav-ico">🧠</span><span>Memory</span></button>
       <button data-goto="activity" class="nav-btn"><span class="nav-ico">📜</span><span>Activity</span></button>
@@ -51,23 +52,26 @@
   </header>
 
   <main>
-    <!-- ======================= FIRST-RUN HERO ======================= -->
-    <section id="setupBanner" class="hero" hidden>
-      <button id="dismissBanner" class="hero-close" aria-label="Dismiss">×</button>
-      <p class="hero-overline">POCKETPLANE</p>
-      <h1 class="hero-title">Your agents. Your model.<br>In your pocket.</h1>
-      <p class="hero-sub">Personal AI agents that run on <strong>your own</strong> model key.
-      Everything — agents, chats, memory — lives in a SQLite database inside your browser.
-      Nothing is stored on our servers, ever.</p>
-      <div class="hero-ctas">
-        <button class="btn btn-primary btn-lg" data-goto="settings">Add your model key</button>
-        <button id="heroDemo" class="btn btn-glass btn-lg">Try the demo</button>
-      </div>
-      <p class="hero-note">You're in demo mode — replies are simulated until you add a key.</p>
-    </section>
-
     <!-- ======================= CHAT ======================= -->
     <section id="view-chat" class="view">
+      <!-- First-run welcome: slim card, demo-first. Shown until it's
+           dismissed or a model is connected. Never blocks chatting. -->
+      <div id="welcomeCard" class="welcome-card" hidden>
+        <button id="welcomeClose" class="welcome-close" aria-label="Dismiss">×</button>
+        <p class="welcome-brand">✈️ PocketPlane</p>
+        <h2 class="welcome-title">Your agents. Your model. In your pocket.</h2>
+        <div class="wedge-rows">
+          <div class="wedge-row"><span class="wedge-ico">🤖</span><p><strong>Your agents</strong> — agents you create, with memory you can see and edit.</p></div>
+          <div class="wedge-row"><span class="wedge-ico">🔑</span><p><strong>Your model</strong> — works with OpenAI, Anthropic, Google or OpenRouter, on your own key. Switch anytime; you're never locked to one company.</p></div>
+          <div class="wedge-row"><span class="wedge-ico">🛡️</span><p><strong>Your data</strong> — everything stays on this device. No account. No server copy.</p></div>
+        </div>
+        <p class="welcome-note">You're chatting in demo mode right now — replies are simulated until you connect your model. Your key stays on this device.</p>
+        <div class="row">
+          <button id="welcomeConnect" class="btn btn-primary">Connect your model</button>
+          <button id="welcomeDismiss" class="btn btn-glass">Stay in demo</button>
+        </div>
+      </div>
+
       <div id="agentTabs" class="agent-tabs" role="tablist"></div>
 
       <div class="chat-head card">
@@ -100,6 +104,36 @@
         <button id="newAgentBtn" class="btn btn-primary btn-sm">+ New agent</button>
       </div>
       <div id="agentList" class="card-list"></div>
+    </section>
+
+    <!-- ======================= TEAM ======================= -->
+    <section id="view-team" class="view" hidden>
+      <div class="view-head">
+        <div>
+          <h2>Team</h2>
+          <p class="view-sub">Give your agents one job. A lead agent plans the steps, your agents split the work, and you get one combined answer.</p>
+        </div>
+      </div>
+
+      <div class="card form-card">
+        <h3 class="card-title">🛫 New team task</h3>
+        <label>What should the team do?
+          <textarea id="teamTask" rows="3" maxlength="2000" placeholder="e.g. Plan a 3-day trip to Lisbon: sights, food, and a day-by-day schedule."></textarea>
+        </label>
+        <label>Lead agent
+          <select id="teamLead"></select>
+        </label>
+        <div class="row">
+          <button type="button" id="planBtn" class="btn btn-primary">Plan it</button>
+        </div>
+        <p class="hint">Each step is a separate call on your model key. In demo mode the whole run is simulated — no key needed to try it.</p>
+        <div id="teamError" class="error-box" hidden></div>
+      </div>
+
+      <div id="teamDetail"></div>
+
+      <h3 class="section-title">Past team runs</h3>
+      <div id="teamHistory" class="card-list"></div>
     </section>
 
     <!-- ======================= MEMORY ======================= -->
@@ -193,10 +227,10 @@
       <form id="settingsForm" class="card form-card">
         <div class="shield-card">
           <span class="shield-ico">🛡️</span>
-          <p><strong>Your key stays in this device's SQLite.</strong>
-          It's stored only inside your browser's PocketPlane database, sent
-          only to call your model provider, and never stored on our
-          servers — the server is stateless and keeps nothing about you.</p>
+          <p><strong>Private by design.</strong>
+          Your agents, chats and key live on this device. There's no
+          account, no server copy, and nothing here trains anyone's
+          model.</p>
         </div>
 
         <h3 class="card-title">Your model</h3>
@@ -230,36 +264,37 @@
         <div class="row">
           <button type="submit" class="btn btn-primary">Save settings</button>
           <button type="button" id="testKey" class="btn btn-glass">Test connection</button>
+          <button type="button" id="quickConnect" class="btn btn-ghost">Quick connect</button>
         </div>
         <p id="testResult" class="test-result" hidden></p>
       </form>
 
       <div class="card form-card">
         <h3 class="card-title">Your data</h3>
-        <p class="hint">Agents, chats, memory, summaries, settings and activity live in a real
-        SQLite database that runs inside your browser (SQLite compiled to
-        WebAssembly, persisted on this device). Download the actual
-        .sqlite file, export a JSON backup, or import either one.</p>
+        <p class="hint">Your agents, chats, memory, summaries and settings live
+        on this device — and only on this device. Take a backup with you,
+        or restore one here.</p>
         <label class="check">
           <input type="checkbox" id="exportIncludeSettings">
-          <span>Include settings in JSON export — <strong>this includes your API token</strong>, in plain text. Only do this somewhere private.</span>
+          <span>Include settings in the JSON copy — <strong>this includes your API token</strong>, in plain text. Only do this somewhere private.</span>
         </label>
         <div class="row">
-          <button id="exportDb" class="btn btn-glass">Download database (.sqlite)</button>
-          <button id="exportAll" class="btn btn-glass">Export all data (JSON)</button>
-          <label class="btn btn-glass file-btn">Import data
+          <button id="exportDb" class="btn btn-primary">Download backup</button>
+          <button id="exportAll" class="btn btn-glass">Export a copy (JSON)</button>
+          <label class="btn btn-glass file-btn">Restore backup
             <input id="importFile" type="file" accept="application/json,.sqlite,.db" hidden>
           </label>
         </div>
+        <p class="hint">One file with everything — only you hold it.</p>
         <p id="dataMsg" class="test-result" hidden></p>
       </div>
     </section>
   </main>
 
   <footer class="footer">
-    <p class="footer-brand">PocketPlane — the personal edition of <strong>Open Agent Plane</strong></p>
+    <p class="footer-brand">PocketPlane — your agents, your model, your data on your device. By <strong>Open Agent Plane</strong>.</p>
     <p>Open source — <a href="https://github.com/revanthsamavedam/open-agent-plane" target="_blank" rel="noopener">github.com/revanthsamavedam/open-agent-plane</a></p>
-    <p class="footer-note">PocketPlane 0.3.0 · Everything stays in your browser. The <em>enterprise</em> edition adds team governance, RBAC and a tamper-evident server audit chain.</p>
+    <p class="footer-note">PocketPlane 0.4.0 · The <em>enterprise</em> edition adds teams of people, approvals and a shared audit trail.</p>
   </footer>
 </div>
 
@@ -289,8 +324,38 @@
   </div>
 </div>
 
+<!-- connect sheet: the simple front door — provider, key, Connect -->
+<div id="connectSheet" class="sheet-overlay" hidden>
+  <div class="sheet">
+    <form id="connectForm" class="form-card">
+      <h3>Connect your model</h3>
+      <p class="hint">Pick your provider and paste your key. That's it —
+      we'll set the model up for you, and test the key before saving.
+      Your key stays on this device.</p>
+      <div class="provider-cards" id="connProviders">
+        <button type="button" class="provider-card" data-conn-provider="openai"><span class="pc-name">OpenAI</span><span class="pc-sub">GPT models</span></button>
+        <button type="button" class="provider-card" data-conn-provider="anthropic"><span class="pc-name">Anthropic</span><span class="pc-sub">Claude models</span></button>
+        <button type="button" class="provider-card" data-conn-provider="google"><span class="pc-name">Google</span><span class="pc-sub">Gemini models</span></button>
+        <button type="button" class="provider-card" data-conn-provider="custom"><span class="pc-name">Other</span><span class="pc-sub">Your own endpoint</span></button>
+      </div>
+      <label id="connBaseRow" hidden>Your endpoint address
+        <input id="connBaseUrl" type="url" maxlength="300" autocomplete="off" placeholder="https://your-endpoint.example.com/v1">
+      </label>
+      <label>API key
+        <input id="connKey" type="password" maxlength="500" autocomplete="off" placeholder="Paste your API key">
+      </label>
+      <p id="connError" class="test-result err" hidden></p>
+      <div class="row">
+        <button type="submit" id="connConnect" class="btn btn-primary">Connect</button>
+        <button type="button" id="connSkip" class="btn btn-ghost">Skip for now</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <nav class="bottomnav">
   <button data-goto="chat" class="nav-btn active"><span class="nav-ico">💬</span><span>Chat</span></button>
+  <button data-goto="team" class="nav-btn"><span class="nav-ico">👥</span><span>Team</span></button>
   <button data-goto="agents" class="nav-btn"><span class="nav-ico">🤖</span><span>Agents</span></button>
   <button data-goto="memory" class="nav-btn"><span class="nav-ico">🧠</span><span>Memory</span></button>
   <button data-goto="activity" class="nav-btn"><span class="nav-ico">📜</span><span>Activity</span></button>

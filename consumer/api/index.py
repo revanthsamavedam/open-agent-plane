@@ -21,7 +21,7 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.4.0"
 
 MAX_MESSAGES = 50
 MAX_CONTENT_CHARS = 8_000

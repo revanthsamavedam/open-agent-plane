@@ -21,6 +21,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
@@ -488,6 +489,121 @@ select option { background: #12151f; color: var(--text); }
 .boot-name { font-size: 24px; font-weight: 850; letter-spacing: -0.02em; margin: 8px 0 2px; }
 .boot-sub, .boot-box p { color: var(--muted); }
 .boot-error-msg { color: #fca5a5; font-weight: 600; }
+
+/* ------------------------------------------------------------- welcome / onboarding */
+
+.welcome-card {
+  position: relative; margin-bottom: 16px;
+  padding: 22px 20px 18px; border-radius: 24px;
+  background: linear-gradient(rgba(13, 16, 29, 0.94), rgba(13, 16, 29, 0.94)) padding-box,
+              var(--grad) border-box;
+  border: 1.5px solid transparent;
+  box-shadow: var(--shadow);
+}
+.welcome-card[hidden] { display: none; }
+.welcome-close {
+  position: absolute; top: 8px; right: 12px;
+  background: transparent; border: 0; color: var(--muted);
+  font-size: 24px; line-height: 1; cursor: pointer; padding: 4px;
+}
+.welcome-brand { margin: 0; font-size: 12px; font-weight: 800; letter-spacing: 0.18em; color: var(--cyan); }
+.welcome-title { font-size: clamp(23px, 5.4vw, 30px); font-weight: 850; margin-top: 6px; }
+.wedge-rows { display: flex; flex-direction: column; gap: 9px; margin: 16px 0 4px; }
+.wedge-row {
+  display: flex; gap: 12px; align-items: flex-start;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--line);
+  border-radius: 14px; padding: 11px 13px;
+}
+.wedge-ico { font-size: 20px; line-height: 1.3; flex: none; }
+.wedge-row p { margin: 0; font-size: 14px; color: var(--muted); }
+.wedge-row strong { color: var(--text); }
+.welcome-note { color: var(--faint); font-size: 13.5px; margin: 12px 0 0; }
+#modeBadge { cursor: pointer; }
+
+/* starter chips (empty thread only) */
+.starter-chips {
+  display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+  margin-top: 18px;
+}
+.starter-chip {
+  padding: 9px 15px; border-radius: 999px; cursor: pointer;
+  background: var(--card); border: 1px solid var(--line); color: var(--text);
+  font-size: 13.5px; font-weight: 600; transition: all 0.15s;
+}
+.starter-chip:hover { background: var(--grad-soft); border-color: rgba(124, 92, 255, 0.45); }
+
+/* connect sheet provider cards */
+.provider-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+.provider-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 15px 16px; border-radius: 16px; cursor: pointer; text-align: left;
+  background: var(--card); border: 1.5px solid var(--line); color: var(--text);
+  transition: border-color 0.15s, background 0.15s, transform 0.12s;
+}
+.provider-card:hover { background: var(--card-strong); }
+.provider-card:active { transform: scale(0.98); }
+.provider-card.selected {
+  border-color: rgba(124, 92, 255, 0.8);
+  background: var(--grad-soft);
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.2);
+}
+.pc-name { font-size: 16.5px; font-weight: 800; }
+.pc-sub { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+
+/* ------------------------------------------------------------- team */
+
+#teamDetail { scroll-margin-top: 84px; }
+
+.badge-wf-draft { background: var(--card-strong); color: var(--muted); }
+.badge-wf-running { background: rgba(34, 211, 238, 0.13); color: #67e8f9; border-color: rgba(34, 211, 238, 0.35); }
+.badge-wf-done { background: rgba(34, 197, 94, 0.14); color: #4ade80; border-color: rgba(34, 197, 94, 0.3); }
+.badge-wf-failed { background: rgba(239, 68, 68, 0.12); color: #f87171; border-color: rgba(239, 68, 68, 0.35); }
+.badge-wf-cancelled { background: rgba(245, 158, 11, 0.13); color: #fbbf24; border-color: rgba(245, 158, 11, 0.3); }
+.badge-wf-pending { background: var(--card-strong); color: var(--muted); }
+
+.wf-task { font-size: 18px; font-weight: 800; margin: 2px 0 8px; }
+.wf-history-task { margin: 2px 0 0; font-weight: 650; white-space: pre-wrap; word-break: break-word; }
+
+.wf-edit-list { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.wf-edit-step {
+  border: 1px solid var(--line); border-radius: 16px; padding: 13px 14px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.wf-edit-top { display: flex; align-items: center; gap: 10px; }
+.wf-step-n {
+  flex: none; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--grad); color: #fff; font-size: 13px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+}
+.wf-step-title { flex: 1; min-width: 0; margin-top: 0 !important; }
+.wf-edit-step label { margin-top: 10px; }
+
+.wf-tree { position: relative; padding-left: 22px; margin-top: 14px; }
+.wf-tree::before {
+  content: ""; position: absolute; left: 6px; top: 10px; bottom: 10px; width: 2px;
+  background: linear-gradient(180deg, rgba(124, 92, 255, 0.5), rgba(34, 211, 238, 0.25));
+  border-radius: 2px;
+}
+.wf-node { position: relative; padding: 0 0 18px; }
+.wf-dot {
+  position: absolute; left: -20px; top: 5px; width: 10px; height: 10px;
+  border-radius: 50%; background: var(--faint);
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.06);
+}
+.wf-node-running .wf-dot { background: var(--cyan); box-shadow: 0 0 0 5px rgba(34, 211, 238, 0.18); animation: bounce 1.1s infinite ease-in-out; }
+.wf-node-done .wf-dot { background: #22c55e; box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.15); }
+.wf-node-failed .wf-dot { background: #ef4444; box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.15); }
+.wf-node-head { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; }
+.wf-node-head strong { font-size: 15.5px; }
+.wf-instr { color: var(--muted); font-size: 13.5px; margin: 5px 0 0; }
+.wf-err { color: #fca5a5; font-size: 13.5px; margin: 7px 0 0; }
+.wf-synthesis {
+  margin-top: 16px; padding: 16px; border-radius: 16px;
+  background: linear-gradient(rgba(16, 20, 34, 0.92), rgba(16, 20, 34, 0.92)) padding-box,
+              var(--grad) border-box;
+  border: 1.5px solid transparent;
+}
+.wf-synthesis h4 { margin: 0 0 8px; font-size: 16px; display: flex; gap: 8px; align-items: center; }
 
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
