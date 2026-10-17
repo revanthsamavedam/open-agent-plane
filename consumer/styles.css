@@ -184,3 +184,19 @@ h3 { font-size: 15px; margin: 0 0 10px; }
   .composer { bottom: calc(70px + env(safe-area-inset-bottom)); }
   .msg { max-width: 78%; }
 }
+
+/* ---------- boot overlay (SQLite startup + fatal error) ---------- */
+.boot-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--paper); padding: 20px;
+}
+.boot-overlay[hidden] { display: none; }
+.boot-box {
+  max-width: 420px; text-align: center;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 28px 22px;
+}
+.boot-mark { font-size: 34px; margin-bottom: 8px; }
+.boot-box h3 { margin: 0 0 10px; }
+.boot-error-msg { color: var(--err-ink); word-break: break-word; }

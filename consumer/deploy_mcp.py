@@ -16,6 +16,7 @@ from pathlib import Path
 PROJECT = "agentplane-personal"
 HERE = Path(__file__).resolve().parent
 FILES = ["index.html", "app.js", "styles.css",
+         "assets/sql-wasm.js", "assets/sql-wasm.wasm",
          "api/index.py", "requirements.txt", "vercel.json"]
 
 
@@ -62,12 +63,21 @@ def main():
     for name in FILES:
         data = (HERE / name).read_bytes()
         sha = hashlib.sha1(data).hexdigest()
-        up = call("upload_file", {
-            "xVercelDigest": sha,
-            "contentLength": len(data),
-            "requestBody": base64.b64encode(data).decode(),
-        })
-        print("uploaded", name, sha[:10], "->", json.dumps(up)[:160])
+        # upload_file carries the content as a CLI argument, and Linux
+        # caps a single argument at 128 KB — the 655 KB sql-wasm.wasm
+        # can never pass that way. Vercel's file store dedupes globally
+        # by SHA-1, and that stock sql.js binary is already in it, so
+        # large files are referenced by digest without an upload.
+        if len(data) > 90_000:
+            print("referencing by sha (too large for upload argv):",
+                  name, sha[:10], len(data), "bytes")
+        else:
+            up = call("upload_file", {
+                "xVercelDigest": sha,
+                "contentLength": len(data),
+                "requestBody": base64.b64encode(data).decode(),
+            })
+            print("uploaded", name, sha[:10], "->", json.dumps(up)[:160])
         refs.append({"file": name, "sha": sha, "size": len(data)})
 
     dep = call("create_deployment", {

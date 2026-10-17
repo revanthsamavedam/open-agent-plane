@@ -4,11 +4,29 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Open Agent Plane — Personal</title>
-<meta name="description" content="Your own personal AI agents, powered by your own model key. Everything stays in your browser.">
+<meta name="description" content="Your own personal AI agents, powered by your own model key. Everything stays in a SQLite database in your browser.">
 <link rel="stylesheet" href="/styles.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✈️</text></svg>">
 </head>
 <body>
+
+<div id="bootOverlay" class="boot-overlay">
+  <div class="boot-box">
+    <div class="boot-mark">✈️</div>
+    <p>Loading your on-device SQLite database…</p>
+  </div>
+</div>
+
+<div id="bootError" class="boot-overlay" hidden>
+  <div class="boot-box">
+    <h3>⚠️ Database failed to start</h3>
+    <p id="bootErrorMsg" class="boot-error-msg"></p>
+    <p>This app stores everything in a real SQLite database inside your
+    browser, and it won't run without it — nothing has been silently
+    moved to weaker storage.</p>
+    <button class="btn btn-primary" onclick="location.reload()">Retry</button>
+  </div>
+</div>
 
 <header class="topbar">
   <div class="brand">
@@ -94,9 +112,10 @@
 
     <form id="settingsForm" class="card form-card">
       <h3>Your model</h3>
-      <p class="privacy-note">🔒 <strong>Your key stays in this browser.</strong>
-      It's sent only to call your model provider and is never stored on our servers —
-      this app has no database and keeps nothing about you.</p>
+      <p class="privacy-note">🔒 <strong>Your key stays on this device.</strong>
+      It's stored in this device's SQLite database (inside your browser), sent
+      only to call your model provider, and never stored on our servers —
+      the server is stateless and keeps nothing about you.</p>
 
       <label>Provider
         <select id="setProvider">
@@ -134,16 +153,19 @@
 
     <div class="card form-card">
       <h3>Your data</h3>
-      <p class="hint">Agents, chats and activity live only in this browser's storage.
-      Export a backup, or import one on another device.</p>
+      <p class="hint">Agents, chats, settings and activity live in a real
+      SQLite database that runs inside your browser (SQLite compiled to
+      WebAssembly, persisted on this device). You can download the actual
+      .sqlite file, export a JSON backup, or import either one.</p>
       <label class="check">
         <input type="checkbox" id="exportIncludeSettings">
-        Include settings in export — <strong>this includes your API token</strong>, in plain text. Only do this somewhere private.
+        Include settings in JSON export — <strong>this includes your API token</strong>, in plain text. Only do this somewhere private.
       </label>
       <div class="row">
-        <button id="exportAll" class="btn">Export all data</button>
+        <button id="exportDb" class="btn">Download database (.sqlite)</button>
+        <button id="exportAll" class="btn">Export all data (JSON)</button>
         <label class="btn file-btn">Import data
-          <input id="importFile" type="file" accept="application/json" hidden>
+          <input id="importFile" type="file" accept="application/json,.sqlite,.db" hidden>
         </label>
       </div>
       <p id="dataMsg" class="test-result" hidden></p>
@@ -163,6 +185,7 @@
   <button data-goto="settings" class="nav-btn">⚙️<span>Settings</span></button>
 </nav>
 
+<script src="/assets/sql-wasm.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

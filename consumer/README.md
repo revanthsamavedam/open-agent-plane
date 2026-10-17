@@ -15,19 +15,56 @@ keep everything on your own device.
   (`api/index.py`) with three routes: `/api/health`, `/api/chat`,
   `/api/test-key`. It has no database, no accounts, no logging of
   request bodies.
-- **Your API token lives only in your browser's localStorage.** When you
-  send a message, the token travels with that one request to the proxy,
-  which uses it exactly once to call your provider and then discards it.
-  It is **never persisted, logged, or echoed** by the server — provider
-  error messages are sanitized to strip the key if a provider reflects
-  it back, and the test suite asserts the key appears in no response.
+- **Your API token lives only in this device's SQLite database.**
+  When you send a message, the token travels with that one request to
+  the proxy, which uses it exactly once to call your provider and then
+  discards it. It is **never persisted, logged, or echoed** by the
+  server — provider error messages are sanitized to strip the key if a
+  provider reflects it back, and the test suite asserts the key appears
+  in no response.
 - **All your data is yours.** Agents, chat threads, settings and the
-  activity log live in localStorage. Export/import a full backup as JSON
-  (the API token is excluded from exports unless you explicitly opt in,
-  with a warning).
+  activity log live in a real SQLite database that runs inside your
+  browser (see below). Download the actual `.sqlite` file, or
+  export/import a JSON backup (the API token is excluded from JSON
+  exports unless you explicitly opt in, with a warning).
 - **Demo mode is honest.** With no token set, the app still works with
   clearly-labelled simulated replies — never presented as real model
   output.
+
+## What's new in 0.2.0 — real SQLite in the browser
+
+Until 0.1.0 the app kept its state in `localStorage`. It now runs a
+**real SQLite database in the browser**:
+
+- **Engine:** [sql.js](https://sql.js.org) — SQLite compiled to
+  WebAssembly — vendored into `assets/` (`sql-wasm.js` +
+  `sql-wasm.wasm`). The app never hot-links a CDN at runtime.
+  The official sqlite.org WASM build with an OPFS backend was the
+  alternative; its OPFS VFS requires cross-origin isolation
+  (COOP/COEP + `SharedArrayBuffer`) and an async-proxy worker, which
+  is fragile for a no-build-step static app and buys nothing
+  user-visible here, so sql.js on the main thread is the pragmatic
+  choice.
+- **Persistence:** the database file is serialized to **IndexedDB**
+  after every mutation (debounced, and flushed on tab-hide/page-hide)
+  and reloaded on boot. All reads/writes go through SQL — there is no
+  localStorage state store anymore.
+- **Schema** (versioned with `PRAGMA user_version`, currently v1):
+  `agents(id, name, emoji, persona, model_override, created_at)`,
+  `messages(id, agent_id FK, role, content, ts, usage_json, demo,
+  model, provider)`, `settings(key, value)` — the API token is a
+  settings row — `activity(id, ts, agent_id, provider, model, tokens,
+  note)`, and `meta(key, value)`.
+- **Migration:** on first boot, any pre-0.2.0 `localStorage` state is
+  imported into the tables (agents, threads, settings incl. token,
+  activity), the old key is removed, and the migration is noted in
+  `meta`. If SQLite/WASM fails to load, the app shows a clear error
+  and refuses to start — it never silently falls back to localStorage.
+- **Backups:** Settings offers **Download database (.sqlite)** — the
+  actual database file — and Import accepts both JSON backups and
+  `.sqlite` files (the imported database replaces the current one).
+- A debug/test hook, `window.AgentPlaneDB.query(sql, params)`, runs
+  SQL against the live database from the console.
 
 ## Features
 
@@ -51,8 +88,9 @@ keep everything on your own device.
 ```
 consumer/
 ├── index.html      single-page app shell (no build step)
-├── app.js          all client logic; state in localStorage
+├── app.js          all client logic; state in an in-browser SQLite DB
 ├── styles.css      mobile-first styling
+├── assets/         vendored sql.js: sql-wasm.js + sql-wasm.wasm
 ├── api/index.py    FastAPI proxy (Vercel Python runtime)
 ├── requirements.txt
 ├── vercel.json     /api/* → api/index.py
@@ -91,12 +129,12 @@ multi-user platform. This personal edition deliberately is **not**:
 | | Personal (this) | Enterprise |
 |---|---|---|
 | Users | one person, one browser | whole organization |
-| Model key | your token, in your browser | org's sanctioned route, server-side |
-| RBAC roles | **none** (v0.1) | admin / owner / approver / auditor / user |
+| Model key | your token, in your device's SQLite DB | org's sanctioned route, server-side |
+| RBAC roles | **none** (v0.2) | admin / owner / approver / auditor / user |
 | Audit | local activity log on your device | append-only, hash-chained, tamper-evident server trail |
-| Connectors | **none** (v0.1) — chat only | governed catalog of 19 enterprise connectors |
+| Connectors | **none** (v0.2) — chat only | governed catalog of 19 enterprise connectors |
 | Approvals | none — it's your agent | reviewer veto + named human approval on writes |
-| Data | your browser's localStorage | org database, 3-tier governed memory |
+| Data | SQLite (WASM) in your browser, persisted via IndexedDB | org database, 3-tier governed memory |
 
 ## License
 
