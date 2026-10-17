@@ -1,0 +1,27 @@
+id: s3_athena
+name: S3 + Athena
+category: Data / storage
+status: LIVE
+auth_type: service_account
+adapter: local_fs
+base_url: ''
+scopes:
+- s3:GetObject on approved prefixes; Athena query on approved workgroups
+config_fields:
+- name: standin_name
+  kind: plain
+  required: false
+  description: Name of the local stand-in bucket directory
+  example: ''
+- name: bucket_ref
+  kind: secret_ref
+  required: false
+  description: Reference naming the production bucket config
+  example: env:S3_BUCKET_CONFIG
+actions:
+- list
+- read
+- query_csv
+- write_draft
+notes: 'LIVE against a local filesystem stand-in bucket: list/read/CSV query + draft
+  writes.'

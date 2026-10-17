@@ -1,0 +1,16 @@
+services:
+  agentplane:
+    build: .
+    ports:
+      - "8090:8090"
+    environment:
+      # Bring your own model: set to any Pydantic AI model string.
+      AGENTPLANE_MODEL: "${AGENTPLANE_MODEL:-}"
+      AUTH_MODE: "${AUTH_MODE:-demo}"
+      JWT_SECRET: "${JWT_SECRET:-}"
+      AGENTPLANE_DB: "data/agentplane.db"
+    volumes:
+      - agentplane-data:/srv/data
+
+volumes:
+  agentplane-data:

@@ -1,0 +1,24 @@
+id: confluence
+name: Confluence
+category: Docs / wiki
+status: SCAFFOLD
+auth_type: api_key
+adapter: generic_rest
+base_url: ''
+scopes:
+- read:confluence-content (scoped)
+config_fields:
+- name: base_url
+  kind: plain
+  required: true
+  description: Your Confluence site URL
+  example: https://example.atlassian.net/wiki
+- name: api_token_ref
+  kind: secret_ref
+  required: true
+  description: Reference to the scoped API token
+  example: env:CONFLUENCE_API_TOKEN
+actions:
+- search_pages
+- read_page
+notes: ''

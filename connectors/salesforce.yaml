@@ -1,0 +1,24 @@
+id: salesforce
+name: Salesforce
+category: CRM
+status: SCAFFOLD
+auth_type: oauth2
+adapter: generic_rest
+base_url: ''
+scopes:
+- api (connected app, least-privilege profile)
+config_fields:
+- name: base_url
+  kind: plain
+  required: true
+  description: Instance URL
+  example: https://example.my.salesforce.com
+- name: access_token_ref
+  kind: secret_ref
+  required: true
+  description: Reference to the OAuth token
+  example: env:SALESFORCE_TOKEN
+actions:
+- soql_query
+- read_record
+notes: SOQL executed service-side only.

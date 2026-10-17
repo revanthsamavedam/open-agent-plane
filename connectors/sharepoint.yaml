@@ -1,0 +1,25 @@
+id: sharepoint
+name: SharePoint
+category: Docs
+status: SCAFFOLD
+auth_type: oauth2
+adapter: generic_rest
+base_url: https://graph.microsoft.com/v1.0
+scopes:
+- Sites.Read.All (or per-site Sites.Selected)
+config_fields:
+- name: base_url
+  kind: plain
+  required: false
+  description: Tenant / workspace base URL
+  example: ''
+- name: access_token_ref
+  kind: secret_ref
+  required: true
+  description: Reference to the OAuth access token / service credential
+  example: env:CONN_TOKEN
+actions:
+- list_sites
+- search_files
+- read_file
+notes: Prefer Sites.Selected per-site grants.

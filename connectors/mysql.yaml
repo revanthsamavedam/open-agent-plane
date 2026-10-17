@@ -1,0 +1,24 @@
+id: mysql
+name: MySQL
+category: Data
+status: LIVE
+auth_type: connection_string
+adapter: sqlite
+base_url: ''
+scopes:
+- SELECT only; writes limited to a drafts table in the stand-in
+config_fields:
+- name: standin_name
+  kind: plain
+  required: false
+  description: Name of the local SQLite stand-in database
+  example: ''
+- name: dsn_ref
+  kind: secret_ref
+  required: false
+  description: Reference to the production DSN
+  example: env:MYSQL_DSN
+actions:
+- query
+- write_draft
+notes: LIVE against a local SQLite stand-in (same read-only guarantees as Postgres).

@@ -1,0 +1,25 @@
+id: github
+name: GitHub
+category: Code
+status: SCAFFOLD
+auth_type: api_key
+adapter: generic_rest
+base_url: https://api.github.com
+scopes:
+- 'repo: read (fine-grained PAT, selected repos)'
+config_fields:
+- name: base_url
+  kind: plain
+  required: false
+  description: ''
+  example: ''
+- name: api_key_ref
+  kind: secret_ref
+  required: true
+  description: Reference to the API key
+  example: env:CONN_API_KEY
+actions:
+- list_repos
+- read_file
+- list_pull_requests
+notes: Fine-grained token via reference only.

@@ -1,0 +1,25 @@
+id: notion
+name: Notion
+category: Docs / wiki
+status: SCAFFOLD
+auth_type: api_key
+adapter: generic_rest
+base_url: https://api.notion.com/v1
+scopes:
+- Read content on shared pages/databases only
+config_fields:
+- name: base_url
+  kind: plain
+  required: false
+  description: ''
+  example: ''
+- name: api_key_ref
+  kind: secret_ref
+  required: true
+  description: Reference to the API key
+  example: env:CONN_API_KEY
+actions:
+- search
+- read_page
+- query_database
+notes: Integration only sees pages explicitly shared with it.

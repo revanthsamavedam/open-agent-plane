@@ -1,0 +1,27 @@
+id: microsoft365
+name: Microsoft 365 / Outlook
+category: Productivity
+status: SCAFFOLD
+auth_type: oauth2
+adapter: generic_rest
+base_url: https://graph.microsoft.com/v1.0
+scopes:
+- Mail.Read
+- Calendars.Read
+- Files.Read (least privilege; Mail.Send only if sending is approved)
+config_fields:
+- name: base_url
+  kind: plain
+  required: false
+  description: Microsoft Graph base URL
+  example: ''
+- name: access_token_ref
+  kind: secret_ref
+  required: true
+  description: Reference to the OAuth access token / service credential
+  example: env:CONN_TOKEN
+actions:
+- list_messages
+- read_calendar
+- search_files
+notes: Catalog-complete scaffold. Wire the Microsoft Graph adapter for production.

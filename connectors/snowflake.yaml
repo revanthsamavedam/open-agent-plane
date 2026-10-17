@@ -1,0 +1,28 @@
+id: snowflake
+name: Snowflake
+category: Data warehouse
+status: SCAFFOLD
+auth_type: service_account
+adapter: scaffold
+base_url: ''
+scopes:
+- Read-only role on approved schemas
+config_fields:
+- name: account
+  kind: plain
+  required: false
+  description: Snowflake account identifier
+  example: ''
+- name: warehouse
+  kind: plain
+  required: false
+  description: ''
+  example: ''
+- name: password_ref
+  kind: secret_ref
+  required: true
+  description: Reference to the read-only role password / key
+  example: vault:snowflake/reader
+actions:
+- query
+notes: Read-only role enforced warehouse-side in production.

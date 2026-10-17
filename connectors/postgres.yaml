@@ -1,0 +1,26 @@
+id: postgres
+name: Postgres (read-only)
+category: Data
+status: LIVE
+auth_type: connection_string
+adapter: sqlite
+base_url: ''
+scopes:
+- SELECT only; writes limited to a drafts table in the stand-in
+config_fields:
+- name: standin_name
+  kind: plain
+  required: false
+  description: Name of the local SQLite stand-in database
+  example: ''
+- name: dsn_ref
+  kind: secret_ref
+  required: false
+  description: Reference to the production DSN (used by a deployed Postgres adapter)
+  example: env:POSTGRES_DSN
+actions:
+- query
+- write_draft
+notes: 'LIVE against a local SQLite stand-in with the Postgres shape: read-only SELECT
+  enforcement, drafts table for approved writes. Point a deployment at real Postgres
+  by swapping the adapter.'

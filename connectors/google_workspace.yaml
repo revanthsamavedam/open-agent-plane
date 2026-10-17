@@ -1,0 +1,27 @@
+id: google_workspace
+name: Google Workspace (Gmail, Drive, Calendar)
+category: Productivity
+status: SCAFFOLD
+auth_type: oauth2
+adapter: generic_rest
+base_url: https://www.googleapis.com
+scopes:
+- gmail.readonly
+- drive.readonly
+- calendar.readonly
+config_fields:
+- name: base_url
+  kind: plain
+  required: false
+  description: Google API base URL
+  example: ''
+- name: access_token_ref
+  kind: secret_ref
+  required: true
+  description: Reference to the OAuth access token / service credential
+  example: env:CONN_TOKEN
+actions:
+- list_messages
+- list_files
+- read_calendar
+notes: One grouped entry for Gmail + Drive + Calendar.

@@ -1,0 +1,24 @@
+id: zendesk
+name: Zendesk
+category: Support
+status: SCAFFOLD
+auth_type: api_key
+adapter: generic_rest
+base_url: ''
+scopes:
+- read (scoped API token)
+config_fields:
+- name: base_url
+  kind: plain
+  required: true
+  description: Zendesk subdomain URL
+  example: https://example.zendesk.com
+- name: api_token_ref
+  kind: secret_ref
+  required: true
+  description: Reference to the API token
+  example: env:ZENDESK_TOKEN
+actions:
+- search_tickets
+- read_ticket
+notes: ''

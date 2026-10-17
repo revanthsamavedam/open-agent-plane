@@ -1,0 +1,29 @@
+id: jira
+name: Jira
+category: Work tracking
+status: SCAFFOLD
+auth_type: api_key
+adapter: generic_rest
+base_url: ''
+scopes:
+- read:jira-work (scoped API token)
+config_fields:
+- name: base_url
+  kind: plain
+  required: true
+  description: Your Jira site URL
+  example: https://example.atlassian.net
+- name: api_token_ref
+  kind: secret_ref
+  required: true
+  description: Reference to the scoped Jira API token
+  example: env:JIRA_API_TOKEN
+- name: account_email
+  kind: plain
+  required: false
+  description: ''
+  example: ''
+actions:
+- search_issues
+- read_issue
+notes: Scoped token, single-project least privilege recommended.

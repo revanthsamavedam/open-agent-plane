@@ -1,0 +1,24 @@
+id: hubspot
+name: HubSpot
+category: CRM
+status: SCAFFOLD
+auth_type: api_key
+adapter: generic_rest
+base_url: https://api.hubapi.com
+scopes:
+- crm.objects.contacts.read (private app, minimal scopes)
+config_fields:
+- name: base_url
+  kind: plain
+  required: false
+  description: ''
+  example: ''
+- name: api_key_ref
+  kind: secret_ref
+  required: true
+  description: Reference to the API key
+  example: env:CONN_API_KEY
+actions:
+- list_contacts
+- read_company
+notes: Private app token via reference only.

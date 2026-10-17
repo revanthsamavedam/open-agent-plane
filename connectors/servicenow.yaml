@@ -1,0 +1,29 @@
+id: servicenow
+name: ServiceNow
+category: ITSM
+status: SCAFFOLD
+auth_type: basic
+adapter: generic_rest
+base_url: ''
+scopes:
+- Table API read on approved tables only
+config_fields:
+- name: base_url
+  kind: plain
+  required: true
+  description: Instance URL
+  example: https://example.service-now.com
+- name: password_ref
+  kind: secret_ref
+  required: true
+  description: Reference to the service account password
+  example: vault:servicenow/password
+- name: username
+  kind: plain
+  required: false
+  description: ''
+  example: ''
+actions:
+- query_table
+- read_incident
+notes: Service account stays service-side.

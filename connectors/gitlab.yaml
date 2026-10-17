@@ -1,0 +1,25 @@
+id: gitlab
+name: GitLab
+category: Code
+status: SCAFFOLD
+auth_type: api_key
+adapter: generic_rest
+base_url: https://gitlab.com/api/v4
+scopes:
+- read_api
+- read_repository
+config_fields:
+- name: base_url
+  kind: plain
+  required: false
+  description: ''
+  example: ''
+- name: api_key_ref
+  kind: secret_ref
+  required: true
+  description: Reference to the API key
+  example: env:CONN_API_KEY
+actions:
+- list_projects
+- read_file
+notes: ''

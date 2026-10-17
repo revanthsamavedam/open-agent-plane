@@ -1,0 +1,26 @@
+id: slack
+name: Slack
+category: Chat
+status: SCAFFOLD
+auth_type: oauth2
+adapter: generic_rest
+base_url: https://slack.com/api
+scopes:
+- channels:history
+- channels:read
+- users:read
+config_fields:
+- name: base_url
+  kind: plain
+  required: false
+  description: ''
+  example: ''
+- name: api_key_ref
+  kind: secret_ref
+  required: true
+  description: Reference to the API key
+  example: env:CONN_API_KEY
+actions:
+- list_channels
+- read_channel_history
+notes: Bot token via reference only.

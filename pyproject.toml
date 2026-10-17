@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "open-agent-plane"
+version = "0.1.0"
+description = "Vendor-neutral, BYO-model enterprise agent control plane: one agent per person, governed as one platform."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2.6",
+  "pydantic-ai>=0.0.49",
+  "fastapi>=0.110",
+  "uvicorn>=0.29",
+  "pyyaml>=6.0",
+  "httpx>=0.27",
+  "PyJWT>=2.8",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
