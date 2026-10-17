@@ -148,10 +148,60 @@ def main():
     print("memory summary stored:", summary["id"],
           "from", len(summary["source_ids"]), "sources; originals intact")
 
+    # --- subagent orchestration (v1.3) --------------------------------
+    orch = call("POST", "/api/orchestrate", {
+        "lead_agent_id": agent["id"], "task": "Weekly ops rollup",
+        "subtasks": [
+            {"key": "gather", "skill": "data-lookup", "input": "list records",
+             "connector_id": conn["id"], "action": "query",
+             "params": {"query": "SELECT title FROM records ORDER BY id"}},
+            {"key": "check", "skill": "data-lookup",
+             "input": "Sanity-check these findings: {{gather.result}}",
+             "depends_on": ["gather"]},
+            {"key": "report", "skill": "draft-report",
+             "input": "Weekly report from: {{check.result}}",
+             "depends_on": ["check"], "connector_id": conn["id"],
+             "action": "query",
+             "params": {"query": "SELECT title FROM records ORDER BY id"}},
+        ]})
+    assert orch["status"] == "awaiting_approval", orch
+    runs = call("GET", "/api/runs")
+    kids = {r["plan_step"]: r for r in runs
+            if r["parent_run_id"] == orch["id"]}
+    assert kids["gather"]["status"] == "completed" \
+        and "alpha" in kids["gather"]["draft"], kids
+    assert kids["check"]["status"] == "completed" \
+        and "alpha" in kids["check"]["input"], kids["check"]
+    report = kids["report"]
+    assert report["status"] == "awaiting_approval", report
+    assert report["id"] in orch["draft"], orch["draft"]
+    print("orchestration parked on write child:",
+          orch["id"], "->", report["id"])
+
+    # The orchestration's creator cannot approve its child (SoD inherited).
+    call("POST", f"/api/runs/{report['id']}/approve", {}, expect=403)
+    print("rbac: orchestration creator denied child approval (403)")
+
+    applied = call("POST", f"/api/runs/{report['id']}/approve",
+                   {"approver": "approver@example.com"}, headers=APPROVER)
+    assert applied["status"] == "applied", applied
+    parent = call("GET", f"/api/runs/{orch['id']}")
+    assert parent["status"] == "completed", parent
+    assert "alpha" in parent["draft"] and "[report]" in parent["draft"], \
+        parent["draft"]
+    print("orchestration completed; synthesis mentions child results")
+
+    pack = call("GET", f"/api/runs/{orch['id']}/evidence")
+    assert len(pack["child_runs"]) == 3, pack.keys()
+    print("orchestration evidence pack includes child runs:",
+          len(pack["child_runs"]))
+
     entries = call("GET", "/api/audit")
     types = sorted({e["event_type"] for e in entries})
     for expected in ("memory_summary_requested", "memory_summary_drafted",
-                     "memory_summary_applied"):
+                     "memory_summary_applied",
+                     "orchestration_started", "subtask_started",
+                     "subtask_finished", "orchestration_finished"):
         assert expected in types, f"missing audit event {expected}"
     verify = call("GET", "/api/audit/verify")
     assert verify["intact"], verify

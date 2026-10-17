@@ -59,6 +59,7 @@ Permission matrix:
 | Configure a connector; test a connector | ✓ | – | – | – | – |
 | Create an agent | ✓ | ✓ (own only) | – | – | – |
 | Create a run | ✓ | ✓ (own agents) | – | – | ✓ (own agents) |
+| Create an orchestration (every subtask agent must satisfy the same ownership scoping) | ✓ | ✓ (own agents) | – | – | ✓ (own agents) |
 | Approve / reject a run | ✓ | – | ✓ | – | – |
 | Add a memory item | ✓ | ✓ | ✓ | – | ✓ |
 | Promote a memory item (private → team) | ✓ | – | ✓ | – | – |

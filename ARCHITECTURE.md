@@ -84,6 +84,36 @@ ends the run. For LIVE connectors, applying performs the write against the
 stand-in; for SCAFFOLD connectors, applying records the intended write in
 the run + audit, labelled as recorded intent. Every step is an audit event.
 
+## Orchestration (subagents)
+
+A run can be a **plan**: `POST /api/orchestrate` creates a parent run
+(skill `orchestrate`) whose subtasks execute as **child runs** — each
+child is a first-class run through the same pipeline (certification
+gate, connector calls, reviewer verdict, approval gate), linked to the
+parent by `parent_run_id` and its `plan_step` key. There is no separate
+subagent runtime to govern: governance is *inherited* by construction.
+
+- **Plans** are DAGs (unique keys, existing `depends_on` references,
+  acyclic — validated up front, 422 otherwise). Subtasks may be
+  explicit, or proposed by a planner through the model gateway; the
+  offline placeholder model yields a deterministic placeholder plan,
+  labelled on the parent run.
+- **Handoffs are typed by template**: a child's input may embed
+  `{{key.result}}`, resolved at execution time from that dependency's
+  result. Unresolvable templates fail the child and the parent — never
+  a silent substitution.
+- **Approvals park the plan**: a child write reaching
+  `awaiting_approval` parks the parent (its draft names the waiting
+  child). Approving the child resumes the parent; rejecting or vetoing
+  it fails the parent with the reason recorded. Separation of duties
+  is inherited — children are created by the orchestration's creator,
+  who can therefore never approve them.
+- **The parent result is a synthesis** of child result summaries
+  (deterministic digest by default; a real model may write it,
+  labelled). Orchestration and subtask started/finished/failed are
+  audit events with parent + child ids, and the parent's Evidence
+  Pack includes the child runs.
+
 ## Audit design
 
 Append-only, hash-chained entries in the same store: each entry carries

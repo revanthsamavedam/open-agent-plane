@@ -32,6 +32,8 @@ Audit is a first-class feature, not a log file.
 | `approval` / `rejection` | Named human decision, with the approver's name |
 | `memory_added` / `memory_promoted` | Memory writes and tier promotions |
 | `memory_summary_requested` / `memory_summary_drafted` / `memory_summary_applied` | Governed memory summarization: run created, draft composed, and (only on named approval) the summary item stored with its source count |
+| `orchestration_started` / `orchestration_finished` / `orchestration_failed` | Orchestration parent run lifecycle (plan size + source on start; failure reason on fail) |
+| `subtask_started` / `subtask_finished` | Per-subtask lifecycle of an orchestration child run; summaries carry the step key plus parent and child run ids |
 | `audit_exported` / `evidence_exported` | Exports are themselves audited |
 | `auth_failure` | A JWT-mode authentication failure |
 

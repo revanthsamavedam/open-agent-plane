@@ -66,11 +66,26 @@ class SummarizeIn(BaseModel):
     limit: int = 20
     input: str = ""
 
+class SubtaskIn(BaseModel):
+    key: str
+    agent_id: str = ""  # blank = the lead agent
+    skill: str
+    input: str = ""
+    depends_on: list[str] = Field(default_factory=list)
+    connector_id: str = ""
+    action: str = ""
+    params: dict[str, Any] = Field(default_factory=dict)
+
+class OrchestrateIn(BaseModel):
+    lead_agent_id: str
+    task: str
+    subtasks: Optional[list[SubtaskIn]] = None
+
 
 
 def create_app(store: Store | None = None) -> FastAPI:
     validate_auth_config()
-    app = FastAPI(title="Open Agent Plane", version="1.2.0")
+    app = FastAPI(title="Open Agent Plane", version="1.3.0")
     app.state.store = store or Store()
 
     def st(request: Request) -> Store:
@@ -240,6 +255,117 @@ def create_app(store: Store | None = None) -> FastAPI:
         run = service.execute_run(s, run, actor)
         return run.model_dump(mode="json")
 
+    @app.post("/api/orchestrate", status_code=201)
+    def create_orchestration(body: OrchestrateIn, request: Request,
+                             caller: Caller = Depends(get_caller)):
+        """Create an orchestration: a parent run whose plan executes as
+        governed child runs (skill: orchestrate). Subtasks may be
+        explicit or omitted (the planner proposes a plan through the
+        model gateway; the TestModel placeholder yields a deterministic
+        placeholder plan, labelled on the parent run). Children inherit
+        governance: each subtask agent must be runnable by the caller
+        under the create_run ownership scoping, and child writes park
+        the parent in awaiting_approval until a named approver (never
+        the orchestration's creator) decides the child."""
+        require_roles(request, caller, "create an orchestration",
+                      "admin", "owner", "user")
+        s = st(request)
+        actor = caller.actor
+        lead = s.get_agent(body.lead_agent_id)
+        if lead is None:
+            raise HTTPException(404, "lead agent not found")
+        if caller.role != "admin" and lead.owner != actor:
+            deny(request, caller, "orchestrate with a lead agent owned "
+                                  "by someone else")
+        skills = load_skills()
+        if body.subtasks is None:
+            raw_steps, source, placeholder, label = \
+                service.build_auto_plan(s, lead, body.task)
+        else:
+            raw_steps = [st_.model_dump() for st_ in body.subtasks]
+            source = "explicit"
+            label_pref = lead.model_override or gateway.effective_model(s)
+            placeholder = gateway.is_placeholder(label_pref)
+            label = gateway.TEST_MODEL_LABEL if placeholder else label_pref
+        if not raw_steps:
+            raise HTTPException(422, "orchestration plan has no subtasks")
+        # ---- validate the plan (fail loudly) --------------------------
+        steps: list[dict] = []
+        seen: set[str] = set()
+        for raw in raw_steps:
+            key = str(raw.get("key") or "").strip()
+            if not key:
+                raise HTTPException(422, "every subtask needs a key")
+            if key in seen:
+                raise HTTPException(422, f"duplicate subtask key: {key}")
+            seen.add(key)
+            agent_id = str(raw.get("agent_id") or lead.id)
+            agent = s.get_agent(agent_id)
+            if agent is None:
+                raise HTTPException(
+                    422, f"subtask {key}: unknown agent {agent_id}")
+            if caller.role != "admin" and agent.owner != actor:
+                deny(request, caller,
+                     f"orchestrate subtask {key} with an agent owned "
+                     f"by someone else")
+            skill = str(raw.get("skill") or "")
+            if skill == "orchestrate":
+                raise HTTPException(
+                    422, f"subtask {key}: nested orchestration is not "
+                         f"supported")
+            if skill not in skills:
+                raise HTTPException(
+                    422, f"subtask {key}: unknown skill: {skill}")
+            if agent.allowed_skills and skill not in agent.allowed_skills:
+                raise HTTPException(
+                    422, f"subtask {key}: skill {skill} is not in agent "
+                         f"{agent.name}'s allow-list")
+            steps.append({
+                "key": key, "agent_id": agent_id, "skill": skill,
+                "input": str(raw.get("input") or ""),
+                "depends_on": [str(d) for d in raw.get("depends_on") or []],
+                "connector_id": str(raw.get("connector_id") or ""),
+                "action": str(raw.get("action") or ""),
+                "params": dict(raw.get("params") or {}),
+            })
+        for step in steps:
+            for dep in step["depends_on"]:
+                if dep not in seen:
+                    raise HTTPException(
+                        422, f"subtask {step['key']}: unknown depends_on "
+                             f"key: {dep}")
+        # Topological order (stable: plan order wins among ready steps).
+        ordered: list[dict] = []
+        done: set[str] = set()
+        remaining = list(steps)
+        while remaining:
+            ready = [st_ for st_ in remaining
+                     if all(d in done for d in st_["depends_on"])]
+            if not ready:
+                raise HTTPException(
+                    422, "subtask dependency graph has a cycle")
+            nxt = ready[0]
+            ordered.append(nxt)
+            done.add(nxt["key"])
+            remaining.remove(nxt)
+        from .models import Run
+        parent = Run(_store=s, agent_id=lead.id, skill="orchestrate",
+                     input=body.task,
+                     params={"task": body.task, "plan": ordered,
+                             "plan_source": source},
+                     created_by=actor, model_used=label,
+                     model_placeholder=placeholder)
+        parent.save()
+        audit(s, "orchestration_started", actor=actor, agent_id=lead.id,
+              run_id=parent.id,
+              summary=f"orchestration started: {len(ordered)} subtask(s), "
+                      f"plan={source}, lead agent {lead.name}"
+                      + (" [placeholder plan]" if source == "placeholder"
+                         else ""),
+              detail=body.task)
+        parent = service.advance_orchestration(s, parent)
+        return parent.model_dump(mode="json")
+
     @app.get("/api/runs")
     def list_runs(request: Request, actor: str = Depends(get_actor)):
         runs = sorted(st(request).all_runs(), key=lambda r: r.created_at, reverse=True)
@@ -265,13 +391,23 @@ def create_app(store: Store | None = None) -> FastAPI:
         run = s.get_run(run_id)
         if run is None:
             raise HTTPException(404, "run not found")
+        if run.skill == "orchestrate":
+            raise HTTPException(
+                409, "orchestration runs are not approved directly; "
+                     "approve the awaiting child run instead (see the "
+                     "parent run's draft for the child run id)")
         if run.status != "awaiting_approval":
             raise HTTPException(409, f"run is {run.status}, not awaiting approval")
         approver = body.approver or caller.actor
         if approver == run.created_by:
             deny(request, caller,
                  "approve a run they created (separation of duties)")
-        return service.approve_run(s, run, approver).model_dump(mode="json")
+        updated = service.approve_run(s, run, approver)
+        if run.parent_run_id:
+            parent = s.get_run(run.parent_run_id)
+            if parent is not None and parent.skill == "orchestrate":
+                service.advance_orchestration(s, parent)
+        return updated.model_dump(mode="json")
 
     @app.post("/api/runs/{run_id}/reject")
     def reject(run_id: str, body: ApprovalIn, request: Request, caller: Caller = Depends(get_caller)):
@@ -280,13 +416,24 @@ def create_app(store: Store | None = None) -> FastAPI:
         run = s.get_run(run_id)
         if run is None:
             raise HTTPException(404, "run not found")
+        if run.skill == "orchestrate":
+            raise HTTPException(
+                409, "orchestration runs are not rejected directly; "
+                     "reject the awaiting child run instead (see the "
+                     "parent run's draft for the child run id)")
         if run.status != "awaiting_approval":
             raise HTTPException(409, f"run is {run.status}, not awaiting approval")
         approver = body.approver or caller.actor
         if approver == run.created_by:
             deny(request, caller,
                  "reject a run they created (separation of duties)")
-        return service.reject_run(s, run, approver, body.reason).model_dump(mode="json")
+        updated = service.reject_run(s, run, approver, body.reason)
+        if run.parent_run_id:
+            parent = s.get_run(run.parent_run_id)
+            if parent is not None and parent.skill == "orchestrate":
+                service.advance_orchestration(s, parent,
+                                               fail_reason=body.reason)
+        return updated.model_dump(mode="json")
 
     # ---- memory ------------------------------------------------------------
 
@@ -458,11 +605,15 @@ def create_app(store: Store | None = None) -> FastAPI:
         run = s.get_run(run_id)
         if run is None:
             raise HTTPException(404, "run not found")
-        audit_slice = [e.model_dump(mode="json") for e in s.all_audit() if e.run_id == run_id]
+        children = [r for r in s.all_runs() if r.parent_run_id == run_id]
+        child_ids = {c.id for c in children}
+        audit_slice = [e.model_dump(mode="json") for e in s.all_audit()
+                       if e.run_id == run_id or e.run_id in child_ids]
         pack = {
             "run": run.model_dump(mode="json"),
+            "child_runs": [c.model_dump(mode="json") for c in children],
             "approvals": [a.model_dump(mode="json") for a in s.all_applied()
-                          if a.run_id == run_id],
+                          if a.run_id == run_id or a.run_id in child_ids],
             "tool_calls": [tc.model_dump(mode="json") for tc in run.tool_calls],
             "review": run.review.model_dump(mode="json") if run.review else None,
             "audit_slice": audit_slice,

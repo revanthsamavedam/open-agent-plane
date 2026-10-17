@@ -91,7 +91,8 @@ never modified.
 | **RBAC (v1.1): admin / owner / approver / auditor / user roles, ownership-scoped runs, separation of duties on approvals, audited denials** | `app/auth.py`, `app/main.py`, [SECURITY.md](SECURITY.md) |
 | BYO model + certification eval gate | `app/gateway.py` |
 | Connector catalog (19 common enterprise connectors, YAML-driven) | `connectors/`, `app/connectors.py`, [CONNECTORS.md](CONNECTORS.md) |
-| Skills (versioned SKILL.md: daily-brief, data-lookup, draft-report, memory-summary) | `skills/` |
+| Skills (versioned SKILL.md: daily-brief, data-lookup, draft-report, memory-summary, orchestrate) | `skills/` |
+| **Subagent orchestration (v1.3): a run can be a plan of governed child runs — typed `{{key.result}}` handoffs, inherited RBAC + approval gates** | `app/service.py`, `POST /api/orchestrate` |
 | **Audit: append-only, hash-chained, exportable, tamper-evident** | `app/store.py`, [AUDIT.md](AUDIT.md) |
 | Memory: private / team (curated, approved promotion) / org tiers + **governed summarization (v1.2)** | `app/main.py`, `app/service.py` |
 | Auth: `AUTH_MODE=demo` or `jwt` (OIDC) + RBAC roles; no silent demo fallback | `app/auth.py`, [SECURITY.md](SECURITY.md) |

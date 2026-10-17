@@ -9,6 +9,7 @@ the run. Read-only skills finish without approval. Everything is audited.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 
 from . import gateway
@@ -41,6 +42,7 @@ def review_draft(run: Run, draft: str) -> ReviewVerdict:
 
 
 SUMMARY_SKILL = "memory-summary"
+ORCHESTRATE_SKILL = "orchestrate"
 
 
 def extractive_digest(items: list[MemoryItem], tier: str, owner: str) -> str:
@@ -118,6 +120,10 @@ def execute_run(store: Store, run: Run, actor: str) -> Run:
         skill = skills[run.skill]
         if agent.allowed_skills and run.skill not in agent.allowed_skills:
             raise ValueError(f"agent {agent.name} is not allowed skill {run.skill}")
+        if run.skill == ORCHESTRATE_SKILL:
+            raise ValueError(
+                "skill 'orchestrate' is a meta-skill: orchestration runs "
+                "must be created via POST /api/orchestrate")
 
         model_label_pref = agent.model_override or gateway.effective_model(store)
         placeholder = gateway.is_placeholder(model_label_pref)
@@ -296,3 +302,266 @@ def reject_run(store: Store, run: Run, approver: str, reason: str = "") -> Run:
           summary=f"rejected by {approver}" + (f": {reason}" if reason else ""),
           detail=run.draft)
     return run
+
+
+# ---------------------------------------------------------------------------
+# Orchestration (v1.3): a run can be a PLAN executed by child runs.
+#
+# The parent run (skill="orchestrate") holds the plan in params["plan"]:
+# a list of steps {key, agent_id, skill, input, depends_on, connector_id,
+# action, params} in topological order (validated by the endpoint).
+# Each step executes as a first-class child Run through execute_run —
+# the pipeline is reused, never forked — carrying parent_run_id +
+# plan_step, created_by = the orchestration's creator (so separation of
+# duties on child approvals is inherited unchanged).
+# ---------------------------------------------------------------------------
+
+_TEMPLATE_RE = re.compile(r"\{\{\s*([A-Za-z0-9_-]+)\.result\s*\}\}")
+
+
+def resolve_templates(text: str, depends_on: list[str],
+                      results: dict[str, str]) -> tuple[str, list[str]]:
+    """Resolve {{key.result}} templates from declared dependencies'
+    results. Returns (resolved_text, missing_keys)."""
+    missing: list[str] = []
+
+    def repl(match: re.Match) -> str:
+        key = match.group(1)
+        if key in depends_on and key in results:
+            return results[key][:1500]
+        if key not in missing:
+            missing.append(key)
+        return match.group(0)
+
+    return _TEMPLATE_RE.sub(repl, text or ""), missing
+
+
+def deterministic_plan(lead, task: str) -> list[dict]:
+    """The placeholder planner's plan: a read feeding a report, using
+    the lead agent's allowed skills. Deterministic — same lead + task
+    always yields the same plan."""
+    allowed = set(lead.allowed_skills) if lead.allowed_skills else None
+
+    def has(skill: str) -> bool:
+        return allowed is None or skill in allowed
+
+    steps: list[dict] = []
+    if has("data-lookup"):
+        steps.append({"key": "lookup", "agent_id": lead.id,
+                      "skill": "data-lookup", "input": task,
+                      "depends_on": [], "connector_id": "",
+                      "action": "", "params": {}})
+    if has("draft-report"):
+        depends = ["lookup"] if steps else []
+        text = f"Write a report for the task: {task}"
+        if depends:
+            text += "\n\nFindings from the lookup step:\n{{lookup.result}}"
+        steps.append({"key": "report", "agent_id": lead.id,
+                      "skill": "draft-report", "input": text,
+                      "depends_on": depends, "connector_id": "",
+                      "action": "", "params": {}})
+    if not steps:
+        skill = next((s for s in (lead.allowed_skills or [])
+                      if s not in (ORCHESTRATE_SKILL, SUMMARY_SKILL)),
+                     "daily-brief")
+        steps.append({"key": "step1", "agent_id": lead.id, "skill": skill,
+                      "input": task, "depends_on": [], "connector_id": "",
+                      "action": "", "params": {}})
+    return steps
+
+
+def build_auto_plan(store: Store, lead, task: str):
+    """Planner: propose a plan through the model gateway.
+
+    Returns (steps, plan_source, placeholder, model_label). With the
+    offline TestModel the plan is the deterministic placeholder plan,
+    labelled as such — never presented as a real model's plan. With a
+    real model the model is asked for a JSON plan restricted to the
+    lead agent and its allowed skills; an unparsable or invalid model
+    plan falls back to the deterministic plan (source recorded)."""
+    label_pref = lead.model_override or gateway.effective_model(store)
+    placeholder = gateway.is_placeholder(label_pref)
+    label = gateway.TEST_MODEL_LABEL if placeholder else label_pref
+    if placeholder:
+        return deterministic_plan(lead, task), "placeholder", True, label
+    prompt = (
+        "Plan the task below as a small DAG of subtasks for a single "
+        "agent. Reply with ONLY a JSON array of objects with keys: "
+        "key (short unique string), skill (one of: "
+        + ", ".join(sorted(s for s in load_skills()
+                           if s != ORCHESTRATE_SKILL))
+        + "), input (string; may embed {{key.result}} for a dependency), "
+        "depends_on (array of keys).\n\nTask: " + task)
+    try:
+        text, _, _ = gateway.generate(store, prompt)
+        raw = text[text.index("["):text.rindex("]") + 1]
+        parsed = json.loads(raw)
+        steps = []
+        for entry in parsed:
+            skill = str(entry["skill"])
+            if lead.allowed_skills and skill not in lead.allowed_skills:
+                raise ValueError(f"model proposed disallowed skill {skill}")
+            steps.append({
+                "key": str(entry["key"]), "agent_id": lead.id,
+                "skill": skill, "input": str(entry.get("input") or task),
+                "depends_on": [str(d) for d in entry.get("depends_on") or []],
+                "connector_id": "", "action": "", "params": {}})
+        if not steps:
+            raise ValueError("model proposed an empty plan")
+        return steps, "model", False, label
+    except Exception:
+        return (deterministic_plan(lead, task), "deterministic-fallback",
+                False, label)
+
+
+def _child_result_text(child: Run) -> str:
+    return (child.draft or "").strip()
+
+
+def synthesize_orchestration(store: Store, parent: Run, plan: list[dict],
+                             children: dict[str, Run]) -> str:
+    """Parent result: a synthesis of child result summaries. Default is
+    a deterministic digest; with a real (non-placeholder) model the
+    model writes the synthesis and it is labelled with the model."""
+    lines = [f"Orchestration synthesis — task: {parent.input}",
+             f"Plan: {len(plan)} subtask(s) "
+             f"({parent.params.get('plan_source', 'explicit')}) · "
+             f"Model: {parent.model_used}"
+             + (" [placeholder]" if parent.model_placeholder else ""),
+             ""]
+    for step in plan:
+        child = children.get(step["key"])
+        status = child.status if child else "not run"
+        result = _child_result_text(child) if child else ""
+        lines.append(f"## [{step['key']}] {step['skill']} — {status}")
+        lines.append(result[:800] if result else "(no result)")
+        lines.append("")
+    digest = "\n".join(lines).strip()
+    if not parent.model_placeholder:
+        try:
+            text, _, _ = gateway.generate(
+                store,
+                "Synthesize the subtask results below into a concise "
+                "final answer for the task. Do not invent facts.\n\n"
+                f"Task: {parent.input}\n\n{digest}")
+            if text.strip():
+                return (f"[synthesis by model {parent.model_used}]\n\n"
+                        f"{text.strip()}")
+        except Exception:
+            pass  # fall through to the deterministic digest
+    return digest
+
+
+def advance_orchestration(store: Store, parent: Run,
+                          fail_reason: str = "") -> Run:
+    """Execute / resume an orchestration parent run.
+
+    Walks the plan in topological order. Steps without a child run yet
+    are executed now (templates resolved from their dependencies);
+    steps whose child is awaiting approval park the parent; a child
+    in a terminal bad state fails the parent; when every child has
+    completed/applied the parent completes with a synthesis. Safe to
+    call again after a child approval (resume) or rejection."""
+    actor = parent.created_by
+    parent._store = store
+    plan: list[dict] = list(parent.params.get("plan") or [])
+    children: dict[str, Run] = {}
+    for run in store.all_runs():
+        if run.parent_run_id == parent.id and run.plan_step:
+            children[run.plan_step] = run
+    results: dict[str, str] = {}
+
+    def fail_parent(error: str) -> Run:
+        parent.status = "failed"
+        parent.error = error[:500]
+        parent.finished_at = datetime.now(timezone.utc)
+        parent.save()
+        audit(store, "orchestration_failed", actor=actor,
+              agent_id=parent.agent_id, run_id=parent.id,
+              summary=f"orchestration failed: {error}", detail=error)
+        return parent
+
+    for step in plan:
+        key = step["key"]
+        child = children.get(key)
+        if child is None:
+            depends = [str(d) for d in step.get("depends_on") or []]
+            resolved, missing = resolve_templates(
+                str(step.get("input") or ""), depends, results)
+            child = Run(
+                _store=store,
+                agent_id=str(step.get("agent_id") or parent.agent_id),
+                skill=str(step.get("skill") or ""),
+                input=resolved,
+                connector_id=str(step.get("connector_id") or ""),
+                action=str(step.get("action") or ""),
+                params=dict(step.get("params") or {}),
+                parent_run_id=parent.id, plan_step=key,
+                created_by=actor)
+            child.save()
+            children[key] = child
+            audit(store, "subtask_started", actor=actor,
+                  agent_id=child.agent_id, run_id=child.id,
+                  summary=f"subtask started: step={key} "
+                          f"skill={child.skill} parent={parent.id} "
+                          f"child={child.id}",
+                  detail=str(step.get("input") or ""))
+            if missing:
+                child.status = "failed"
+                child.error = (
+                    "unresolvable template reference(s): "
+                    + ", ".join("{{" + k + ".result}}" for k in missing)
+                    + " — templates may only reference declared "
+                      "dependencies that have completed")
+                child.finished_at = datetime.now(timezone.utc)
+                child.save()
+                audit(store, "subtask_finished", actor=actor,
+                      agent_id=child.agent_id, run_id=child.id,
+                      summary=f"subtask finished: step={key} "
+                              f"status=failed parent={parent.id} "
+                              f"child={child.id}",
+                      detail=child.error)
+                return fail_parent(f"subtask '{key}' failed: {child.error}")
+            child = execute_run(store, child, actor)
+            children[key] = child
+            audit(store, "subtask_finished", actor=actor,
+                  agent_id=child.agent_id, run_id=child.id,
+                  summary=f"subtask finished: step={key} "
+                          f"status={child.status} parent={parent.id} "
+                          f"child={child.id}",
+                  detail=child.draft or child.error)
+        if child.status in ("completed", "applied"):
+            results[key] = _child_result_text(child)
+            continue
+        if child.status == "awaiting_approval":
+            parent.status = "awaiting_approval"
+            parent.error = ""
+            parent.draft = (
+                f"Awaiting approval: child run {child.id} "
+                f"(step '{key}', skill {child.skill}) must be approved "
+                f"or rejected before the orchestration continues.")
+            parent.finished_at = None
+            parent.save()
+            return parent
+        # rejected / vetoed / failed — the parent fails, reason recorded.
+        if child.status == "rejected":
+            reason = fail_reason or (
+                f"rejected by {child.approver}" if child.approver
+                else "rejected")
+        elif child.status == "vetoed" and child.review is not None:
+            reason = "reviewer veto: " + "; ".join(child.review.reasons)
+        else:
+            reason = child.error or child.status
+        return fail_parent(f"subtask '{key}' {child.status}: {reason}")
+
+    parent.draft = synthesize_orchestration(store, parent, plan, children)
+    parent.status = "completed"
+    parent.error = ""
+    parent.finished_at = datetime.now(timezone.utc)
+    parent.save()
+    audit(store, "orchestration_finished", actor=actor,
+          agent_id=parent.agent_id, run_id=parent.id,
+          summary=f"orchestration completed: {len(plan)} subtask(s) "
+                  f"synthesized",
+          detail=parent.draft)
+    return parent

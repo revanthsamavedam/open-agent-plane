@@ -72,10 +72,22 @@
       <input id="wiz-run-query" placeholder='Optional params JSON, e.g. {"query":"SELECT * FROM records"}'>
       <button class="action" onclick="wizRun()">Run</button>
       <pre id="wiz-run-out"></pre>
-      <p class="muted">Write skills land in Approvals. Read-only runs finish immediately. Everything is in Audit. The <b>memory-summary</b> skill is not run from here — draft governed memory summaries from the Memory page.</p></div>
+      <p class="muted">Write skills land in Approvals. Read-only runs finish immediately. Everything is in Audit. The <b>memory-summary</b> skill is not run from here — draft governed memory summaries from the Memory page. The <b>orchestrate</b> meta-skill is not run from here either — run plans of child runs from the Dashboard.</p></div>
   </section>
 
-  <section id="page-dashboard"><h2>Runs</h2><div class="card"><button class="ghost" onclick="loadRuns()">Refresh</button><div id="runs"></div></div></section>
+  <section id="page-dashboard"><h2>Runs</h2>
+    <div class="card"><h3>Orchestrate — a plan of governed child runs</h3>
+      <p class="muted">The lead agent's task is executed as a DAG of subtasks, each a first-class child run through the ordinary pipeline (certification gate, reviewer, approvals). A child's input may embed <code>{{key.result}}</code> from a dependency. If a child write awaits approval, the parent parks and names the waiting child — approve the <b>child</b> in the Approvals queue (never the parent, and never as the orchestration's creator). Clear the subtasks box to let the planner propose a plan (with the placeholder model the plan is deterministic and labelled).</p>
+      <select id="orch-agent"></select>
+      <input id="orch-task" placeholder="Task, e.g. Weekly status rollup" value="Weekly status rollup">
+      <textarea id="orch-subtasks" rows="8">[
+  {"key": "gather", "skill": "data-lookup", "input": "List the current records"},
+  {"key": "report", "skill": "draft-report", "input": "Write the weekly report from these findings:\n{{gather.result}}", "depends_on": ["gather"]},
+  {"key": "wrap", "skill": "data-lookup", "input": "Confirm what was filed: {{report.result}}", "depends_on": ["report"]}
+]</textarea>
+      <button class="action" onclick="orchestrate()">Run orchestration</button>
+      <pre id="orch-out"></pre></div>
+    <div class="card"><button class="ghost" onclick="loadRuns()">Refresh</button><div id="runs"></div></div></section>
   <section id="page-agents"><h2>Agents</h2><div class="card"><div id="agents"></div></div></section>
   <section id="page-connectors"><h2>Connector catalog</h2><div class="card"><div id="catalog"></div></div>
     <h2>Configured connectors</h2><div class="card"><div id="connectors"></div></div></section>
@@ -174,7 +186,7 @@ async function wizAddAgent() {
 async function refreshRunForm() {
   const [agents, skills, conns] = await Promise.all([api("/api/agents"), api("/api/skills"), api("/api/connectors")]);
   $("wiz-run-agent").innerHTML = agents.map(a => `<option value="${a.id}">${a.name}</option>`).join("");
-  $("wiz-run-skill").innerHTML = skills.filter(s => s.name !== "memory-summary").map(s => `<option>${s.name}</option>`).join("");
+  $("wiz-run-skill").innerHTML = skills.filter(s => s.name !== "memory-summary" && s.name !== "orchestrate").map(s => `<option>${s.name}</option>`).join("");
   $("wiz-run-conn").innerHTML = `<option value="">(no connector)</option>` + conns.map(c => `<option value="${c.id}">${c.name} (${c.status})</option>`).join("");
 }
 async function wizRun() {
@@ -185,9 +197,35 @@ async function wizRun() {
   $("wiz-run-out").textContent = `Run ${out.id}: status=${out.status}\n\n${out.draft || out.error || ""}`;
 }
 async function loadRuns() {
-  const runs = await api("/api/runs");
-  $("runs").innerHTML = "<table><tr><th>Run</th><th>Skill</th><th>Status</th><th>Model</th><th>Evidence</th></tr>" +
-    runs.map(r => `<tr><td>${r.id}<br><span class="muted">${r.created_at}</span></td><td>${r.skill}</td><td>${r.status}</td><td>${r.model_used}${r.model_placeholder ? " (placeholder)" : ""}</td><td><a style="color:#38bdf8" href="/api/runs/${r.id}/evidence">Evidence Pack</a></td></tr>`).join("") + "</table>";
+  const [runs, agents] = await Promise.all([api("/api/runs"), api("/api/agents")]);
+  if ($("orch-agent")) $("orch-agent").innerHTML = agents.map(a => `<option value="${a.id}">${a.name}</option>`).join("");
+  const kids = {};
+  runs.forEach(r => { if (r.parent_run_id) (kids[r.parent_run_id] = kids[r.parent_run_id] || []).push(r); });
+  const chip = (s) => `<span class="badge ${s === "completed" || s === "applied" ? "live" : s === "awaiting_approval" ? "scaffold" : ""}">${s}</span>`;
+  const rowFor = (r, indent) => {
+    const waiting = (kids[r.id] || []).find(c => c.status === "awaiting_approval");
+    const note = r.skill === "orchestrate"
+      ? `<br><span class="muted">${waiting ? `waiting on child ${waiting.id} (step “${waiting.plan_step}”) — approve the child, not this parent` : "orchestration"}</span>` : "";
+    return `<tr><td style="padding-left:${indent ? 30 : 6}px">${indent ? "↳ " : ""}<a style="color:#38bdf8" href="/api/runs/${r.id}/evidence">${r.id}</a>${r.plan_step ? ` <span class="badge">step: ${r.plan_step}</span>` : ""}<br><span class="muted">${r.created_at}</span>${note}</td><td>${r.skill}</td><td>${chip(r.status)}</td><td>${r.model_used}${r.model_placeholder ? " (placeholder)" : ""}</td><td><a style="color:#38bdf8" href="/api/runs/${r.id}/evidence">Evidence Pack</a></td></tr>`;
+  };
+  let html = "<table><tr><th>Run</th><th>Skill</th><th>Status</th><th>Model</th><th>Evidence</th></tr>";
+  runs.filter(r => !r.parent_run_id).forEach(r => {
+    html += rowFor(r, false);
+    const order = ((r.params || {}).plan || []).map(s => s.key);
+    (kids[r.id] || []).slice().sort((a, b) => order.indexOf(a.plan_step) - order.indexOf(b.plan_step))
+      .forEach(c => { html += rowFor(c, true); });
+  });
+  $("runs").innerHTML = html + "</table>";
+}
+async function orchestrate() {
+  try {
+    const raw = $("orch-subtasks").value.trim();
+    const body = {lead_agent_id: $("orch-agent").value, task: $("orch-task").value};
+    if (raw) { try { body.subtasks = JSON.parse(raw); } catch (e) { $("orch-out").textContent = "Subtasks are not valid JSON: " + e.message; return; } }
+    const out = await api("/api/orchestrate", {method: "POST", body: JSON.stringify(body)});
+    $("orch-out").textContent = `Parent run ${out.id}: status=${out.status} model=${out.model_used}${out.model_placeholder ? " (placeholder)" : ""}\n\n${out.draft || out.error || ""}`;
+    loadRuns();
+  } catch (e) { $("orch-out").textContent = "Denied/failed: " + e.message; }
 }
 async function loadAgents() {
   const agents = await api("/api/agents");

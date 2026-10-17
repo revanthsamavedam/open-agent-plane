@@ -112,6 +112,10 @@ class Run(BaseModel):
     model_placeholder: bool = False
     created_by: str = ""
     approver: str = ""
+    # Orchestration (v1.3): a run may be a child of an orchestration
+    # parent run (skill="orchestrate"); plan_step is its key in the plan.
+    parent_run_id: str = ""
+    plan_step: str = ""
     applied_note: str = ""
     error: str = ""
     created_at: datetime = Field(default_factory=utcnow)
